@@ -1,0 +1,22 @@
+name: pr check
+
+on:
+  push:
+    # 自身のワークフロー定義ファイルが更新されたときだけトリガー
+    paths:
+      - .github/workflows/pr-check.yaml
+  workflow_dispatch: # 手動実行トリガー
+
+jobs:
+  pr-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: pr-check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr list
+          gh pr list --state open\
+            --json number,title,reviewRequests,reviews \
+            --jq '.[]'
