@@ -5,6 +5,7 @@ on:
     # 自身のワークフロー定義ファイルが更新されたときだけトリガー
     paths:
       - .github/workflows/pr-check.yaml
+      - .github/workflows/script/collect_pr_status.sh
   workflow_dispatch: # 手動実行トリガー
 
 jobs:
