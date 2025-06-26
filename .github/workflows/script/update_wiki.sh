@@ -13,6 +13,11 @@ WIKI_DIR="${1?Wiki リポジトリのパスを指定してください}"
 
 cd "$WIKI_DIR"
 
+# GITHUB_TOKEN が設定されていれば push 用の URL を設定
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki"
+fi
+
 if [ ! -f PR_Status.md ]; then
     echo "PR_Status.md が見つかりません"
     exit 1

@@ -11,6 +11,9 @@ on:
 jobs:
   pr-check:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
