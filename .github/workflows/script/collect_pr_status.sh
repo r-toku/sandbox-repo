@@ -62,17 +62,12 @@ format_reviewer_status() {
 }
 
 # -----------------------------------------------------------------------------
-# Wiki リポジトリをクローン
+# 出力先ディレクトリの設定
+# 引数でディレクトリが指定されていない場合はカレントディレクトリを使用
 # -----------------------------------------------------------------------------
-REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
-WIKI_URL="https://github.com/${REPO}.wiki.git"
-WORK_DIR=$(mktemp -d)
-trap 'rm -rf "$WORK_DIR"' EXIT
-
-echo "Cloning wiki: $WIKI_URL"
- git clone "$WIKI_URL" "$WORK_DIR"
-
-OUTPUT_FILE="$WORK_DIR/PR_Status.md"
+OUTPUT_DIR="${1:-.}"
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_FILE="$OUTPUT_DIR/PR_Status.md"
 
 # Markdown テーブルのヘッダーを書き出し
 {
@@ -161,18 +156,4 @@ GQL
     echo "| #$PR_NUMBER | [$PR_TITLE]($PR_URL) | $PR_STATUS | $REVIEWER_INFO | $ASSIGNEES | $PRIORITY | $TARGET_DATE | $SPRINT |" >> "$OUTPUT_FILE"
 done
 
-# -----------------------------------------------------------------------------
-# Wiki へコミット・プッシュ
-# -----------------------------------------------------------------------------
-cd "$WORK_DIR"
-git config user.name "$GITHUB_ACTOR"
-git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
-git add PR_Status.md
-if ! git diff --cached --quiet; then
-    git commit -m "Update PR status"
-    git push
-else
-    echo "更新内容がないためコミットしません"
-fi
-
-echo "Wiki updated at $OUTPUT_FILE"
+echo "PR 情報を $OUTPUT_FILE に出力しました"
