@@ -18,4 +18,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -l .github/workflows/script/
-          bash .github/workflows/script/collect_pr_status.sh
+          bash .github/workflows/script/collect_pr_status.sh wiki
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki
+      - name: update-wiki
+        run: bash .github/workflows/script/update_wiki.sh wiki
