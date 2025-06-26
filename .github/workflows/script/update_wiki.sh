@@ -13,6 +13,11 @@ WIKI_DIR="${1?Wiki リポジトリのパスを指定してください}"
 
 cd "$WIKI_DIR"
 
+if [ ! -f PR_Status.md ]; then
+    echo "PR_Status.md が見つかりません"
+    exit 1
+fi
+
 git add PR_Status.md
 if ! git diff --cached --quiet; then
     git config user.name "${GITHUB_ACTOR:-github-actions}"
