@@ -1,12 +1,12 @@
 name: pr check
 
 on:
+  workflow_dispatch: # 手動実行トリガー
   push:
     # 自身のワークフロー定義ファイルが更新されたときだけトリガー
     paths:
       - .github/workflows/pr-check.yaml
       - .github/workflows/script/collect_pr_status.sh
-  workflow_dispatch: # 手動実行トリガー
 
 jobs:
   pr-check:
@@ -17,7 +17,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr list
-          gh pr list --state open\
-            --json number,title,reviewRequests,reviews \
-            --jq '.[]'
+          ls -l .github/workflows/script/
+          bash .github/workflows/script/collect_pr_status.sh
