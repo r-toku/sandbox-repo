@@ -118,19 +118,24 @@ for i in $(seq 0 $((PR_COUNT - 1))); do
 
     # --- Projects フィールドの取得 -------------------------------------------
     PR_NODE_ID=$(gh pr view "$PR_NUMBER" --json id -q .id)
+    # projectNextItems は利用できなかったため projectItems を使用
     GRAPHQL_QUERY="$(cat <<'GQL'
         query($PR_NODE_ID: ID!) {
           node(id: $PR_NODE_ID) {
             ... on PullRequest {
-              projectNextItems(first: 20) {
+              projectItems(first: 20) {
                 nodes {
-                  fieldValues(first: 20) {
-                    nodes {
-                      projectField { name }
-                      ... on ProjectNextTextFieldValue { text }
-                      ... on ProjectNextDateFieldValue { date }
-                      ... on ProjectNextSingleSelectFieldValue { name }
-                    }
+                  targetDate: fieldValueByName(name: \"Target Date\") {
+                    ... on ProjectV2ItemFieldDateValue { date }
+                    ... on ProjectV2ItemFieldTextValue { text }
+                  }
+                  priority: fieldValueByName(name: \"Priority\") {
+                    ... on ProjectV2ItemFieldSingleSelectValue { name }
+                    ... on ProjectV2ItemFieldTextValue { text }
+                  }
+                  sprint: fieldValueByName(name: \"Sprint\") {
+                    ... on ProjectV2ItemFieldSingleSelectValue { name }
+                    ... on ProjectV2ItemFieldTextValue { text }
                   }
                 }
               }
@@ -140,14 +145,11 @@ for i in $(seq 0 $((PR_COUNT - 1))); do
 GQL
     )"
     PROJECT_JSON=$(gh api graphql -H "GraphQL-Features: projects_next_graphql" \
-        -f query="$GRAPHQL_QUERY" -f PR_NODE_ID="$PR_NODE_ID")
+        -f query="$GRAPHQL_QUERY" -f PR_NODE_ID="$PR_NODE_ID" || echo "{}")
 
-    TARGET_DATE=$(echo "$PROJECT_JSON" | jq -r \
-        '.data.node.projectNextItems.nodes[].fieldValues.nodes[] | select(.projectField.name=="Target Date") | (.date // .text) ' | head -n1)
-    PRIORITY=$(echo "$PROJECT_JSON" | jq -r \
-        '.data.node.projectNextItems.nodes[].fieldValues.nodes[] | select(.projectField.name=="Priority") | (.name // .text) ' | head -n1)
-    SPRINT=$(echo "$PROJECT_JSON" | jq -r \
-        '.data.node.projectNextItems.nodes[].fieldValues.nodes[] | select(.projectField.name=="Sprint") | (.name // .text) ' | head -n1)
+    TARGET_DATE=$(echo "$PROJECT_JSON" | jq -r '.data.node.projectItems.nodes[].targetDate | .date // .text' | head -n1)
+    PRIORITY=$(echo "$PROJECT_JSON" | jq -r '.data.node.projectItems.nodes[].priority | .name // .text' | head -n1)
+    SPRINT=$(echo "$PROJECT_JSON" | jq -r '.data.node.projectItems.nodes[].sprint | .name // .text' | head -n1)
 
     TARGET_DATE=${TARGET_DATE:-"-"}
     PRIORITY=${PRIORITY:-"-"}
