@@ -125,15 +125,15 @@ for i in $(seq 0 $((PR_COUNT - 1))); do
             ... on PullRequest {
               projectItems(first: 20) {
                 nodes {
-                  targetDate: fieldValueByName(name: \"Target Date\") {
+                  targetDate: fieldValueByName(name: "Target Date") {
                     ... on ProjectV2ItemFieldDateValue { date }
                     ... on ProjectV2ItemFieldTextValue { text }
                   }
-                  priority: fieldValueByName(name: \"Priority\") {
+                  priority: fieldValueByName(name: "Priority") {
                     ... on ProjectV2ItemFieldSingleSelectValue { name }
                     ... on ProjectV2ItemFieldTextValue { text }
                   }
-                  sprint: fieldValueByName(name: \"Sprint\") {
+                  sprint: fieldValueByName(name: "Sprint") {
                     ... on ProjectV2ItemFieldSingleSelectValue { name }
                     ... on ProjectV2ItemFieldTextValue { text }
                   }
@@ -147,9 +147,9 @@ GQL
     PROJECT_JSON=$(gh api graphql -H "GraphQL-Features: projects_next_graphql" \
         -f query="$GRAPHQL_QUERY" -f PR_NODE_ID="$PR_NODE_ID" || echo "{}")
 
-    TARGET_DATE=$(echo "$PROJECT_JSON" | jq -r '.data.node.projectItems.nodes[].targetDate | .date // .text' | head -n1)
-    PRIORITY=$(echo "$PROJECT_JSON" | jq -r '.data.node.projectItems.nodes[].priority | .name // .text' | head -n1)
-    SPRINT=$(echo "$PROJECT_JSON" | jq -r '.data.node.projectItems.nodes[].sprint | .name // .text' | head -n1)
+    TARGET_DATE=$(echo "$PROJECT_JSON" | jq -r '.data.node.projectItems.nodes[]? | .targetDate | .date // .text // empty' | head -n1)
+    PRIORITY=$(echo "$PROJECT_JSON" | jq -r '.data.node.projectItems.nodes[]? | .priority | .name // .text // empty' | head -n1)
+    SPRINT=$(echo "$PROJECT_JSON" | jq -r '.data.node.projectItems.nodes[]? | .sprint | .name // .text // empty' | head -n1)
 
     TARGET_DATE=${TARGET_DATE:-"-"}
     PRIORITY=${PRIORITY:-"-"}
