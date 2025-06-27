@@ -15,7 +15,7 @@ cd "$WIKI_DIR"
 
 # GITHUB_TOKEN が設定されていれば push 用の URL を設定
 if [ -n "${GITHUB_TOKEN:-}" ]; then
-    git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki"
+    git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.wiki.git"
 fi
 
 if [ ! -f PR_Status.md ]; then
