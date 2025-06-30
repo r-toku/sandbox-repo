@@ -132,8 +132,6 @@ for i in $(seq 0 $((PR_COUNT - 1))); do
           }
         }
 GQL
-}
-
     )"
     PROJECT_JSON=$(gh api graphql -H "GraphQL-Features: projects_next_graphql" \
         -f query="$GRAPHQL_QUERY" -f PR_NODE_ID="$PR_NODE_ID" || echo "{}")
