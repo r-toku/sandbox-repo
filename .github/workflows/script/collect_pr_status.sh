@@ -6,16 +6,8 @@
 # オープン中のプルリクエストを取得し
 # GitHub Wiki の Markdown ページにステータスを
 # まとめるスクリプトです。GitHub Actions 上で
-# gh コマンドを使って実行する想定です。
+# gh コマンドを使って実行する想定です。　
 # ==========================================
-
-set -euo pipefail
-
-# 必要なコマンドの存在確認
-command -v gh >/dev/null 2>&1 || { echo "gh コマンドが見つかりません"; exit 1; }
-command -v jq >/dev/null 2>&1 || { echo "jq コマンドが見つかりません"; exit 1; }
-
-# ----- 関数定義 --------------------------------------------------------------
 
 # レビュー結果とドラフト状態から PR のステータスを判定する
 # 引数:
@@ -129,19 +121,10 @@ for i in $(seq 0 $((PR_COUNT - 1))); do
         query($PR_NODE_ID: ID!) {
           node(id: $PR_NODE_ID) {
             ... on PullRequest {
-              projectItems(first: 20) {
+              projectItems(first: 1) {
                 nodes {
-                  targetDate: fieldValueByName(name: "Target Date") {
-                    ... on ProjectV2ItemFieldDateValue { date }
-                    ... on ProjectV2ItemFieldTextValue { text }
-                  }
-                  priority: fieldValueByName(name: "Priority") {
-                    ... on ProjectV2ItemFieldSingleSelectValue { name }
-                    ... on ProjectV2ItemFieldTextValue { text }
-                  }
-                  sprint: fieldValueByName(name: "Sprint") {
-                    ... on ProjectV2ItemFieldSingleSelectValue { name }
-                    ... on ProjectV2ItemFieldTextValue { text }
+                  project {
+                    __typename
                   }
                 }
               }
