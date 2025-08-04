@@ -63,8 +63,8 @@ def main(output_dir: str) -> None:
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("# Pull Request Status\n\n")
         f.write(f"Updated: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n\n")
-        f.write("| PR | Title | 状態 | Reviewers | Assignees | Priority | Target Date | Sprint |\n")
-        f.write("| --- | ----- | ---- | --------- | --------- | -------- | ----------- | ------ |\n")
+        f.write("| PR | Title | 状態 | Reviewers | Assignees | Status | Priority | Sprint | End date |\n")
+        f.write("| --- | ----- | ---- | --------- | --------- | ------ | -------- | ------ | --------- |\n")
 
     pr_list_json = run_gh([
         "gh", "pr", "list", "--state", "open", "--limit", "100",
@@ -106,9 +106,10 @@ def main(output_dir: str) -> None:
             "    ... on PullRequest {\n"
             "      projectItems(first: 1) {\n"
             "        nodes {\n"
-            "          targetDate { date text }\n"
+            "          status { name text }\n"
             "          priority { name text }\n"
             "          sprint { name text }\n"
+            "          endDate { date text }\n"
             "        }\n"
             "      }\n"
             "    }\n"
@@ -122,17 +123,18 @@ def main(output_dir: str) -> None:
             ])
             print(f"PROJECT_JSON for PR {number}={project_json_str}")
             project_json = json.loads(project_json_str)
-            target_date = extract_field(project_json, "targetDate")
+            status = extract_field(project_json, "status")
             priority = extract_field(project_json, "priority")
             sprint = extract_field(project_json, "sprint")
+            end_date = extract_field(project_json, "endDate")
         except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
             # プロジェクト情報の取得に失敗した場合は空欄を設定する
             print(f"PROJECT_JSON fetch failed for PR {number}: {e}")
-            target_date = priority = sprint = "-"
+            status = priority = sprint = end_date = "-"
 
         with open(output_file, "a", encoding="utf-8") as f:
             f.write(
-                f"| #{number} | [{title}]({url}) | {pr_status} | {reviewer_info} | {assignees_str} | {priority} | {target_date} | {sprint} |\n"
+                f"| #{number} | [{title}]({url}) | {pr_status} | {reviewer_info} | {assignees_str} | {status} | {priority} | {sprint} | {end_date} |\n"
             )
 
     print(f"PR 情報を {output_file} に出力しました")

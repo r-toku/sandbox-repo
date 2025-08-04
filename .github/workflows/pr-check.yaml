@@ -26,7 +26,7 @@ jobs:
       - name: pr-check
         # CLI で取得した PR 情報を Markdown にまとめる
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PROJECT_PAT }}
         run: |
           ls -l .github/workflows/script/
           python .github/workflows/script/collect_pr_status.py wiki
