@@ -16,6 +16,10 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
+      # Classic と v2 の両方を読むなら両方付ける
+      repository-projects: read   # Classic Projects
+      projects: read              # Projects v2
+
     steps:
       - uses: actions/checkout@v4
       - name: api-test
@@ -23,6 +27,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          OWNER="${{ github.repository_owner }}"
+          REPO="${{ github.repository##*/}"       # or直接指定
+
           # 認証情報とスコープ確認
           gh auth status -t
 
