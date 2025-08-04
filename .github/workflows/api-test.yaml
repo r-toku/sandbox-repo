@@ -28,4 +28,4 @@ jobs:
             # --jq '
             #   .projectItems[].fieldValues.nodes[]
             #   | {field: (.field.name // "-"), value: (.text // .name // .number // .date)}
-            # '
+            # ' 
