@@ -1,0 +1,48 @@
+name: API Test
+
+on:
+  push:
+    # 自身のワークフロー定義ファイルが更新されたときだけトリガー
+    paths:
+      - .github/workflows/api-test.yaml
+  workflow_dispatch: # 手動実行トリガー
+
+env:
+  PR: 3
+  OWNER: ${{ github.repository_owner }}
+  REPO: ${{ github.event.repository.name }}       # or直接指定
+
+jobs:
+  pr-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: api-test
+        # CLI で取得した PR 情報を Markdown にまとめる
+        env:
+          GH_TOKEN: ${{ secrets.GH_PROJECT_PAT }}
+        run: |
+          # 認証情報とスコープ確認
+          gh auth status -t
+
+          # gh auth refresh -s read:project
+
+          # Classic / v2 判別
+          gh pr view $PR --json projectCards,projectItems --jq '.'
+
+          # GraphQL で直接問い合わせ
+          gh api graphql -f owner=$OWNER -f repo=$REPO -F number=$PR -f query='
+            query($owner:String!,$repo:String!,$number:Int!){
+              repository(owner:$owner,name:$repo){
+                pullRequest(number:$number){
+                  projectItems(first:10){ totalCount }
+                }
+              }
+            }'
+
+          # PR の Project フィールドを jq で整形出力
+          gh pr view $PR --json projectItems \
+            --jq '
+              .projectItems[].fieldValues.nodes[]
+              | {field: (.field.name // "-"), value: (.text // .name // .number // .date)}
+            ' 
