@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""オープン中のプルリクエスト情報を取得しMarkdownに出力するスクリプト"""
+"""オープン中のプルリクエスト情報を取得し Markdown に整形して出力するスクリプト
+
+GitHub CLI (`gh`) を利用して以下の情報を収集する。
+
+* オープン中 PR の基本情報
+* レビューの状況や割り当てられたレビュワー
+* Projects (v2) に紐付くフィールド値
+
+収集した内容を Wiki に掲載するための Markdown 形式にまとめる。
+"""
 import argparse
 import datetime
 import json
@@ -7,11 +16,12 @@ import os
 import subprocess
 from typing import List, Dict, Any
 
-# PR のステータスを判定する
-# 引数:
-#   reviews   - レビュー情報のリスト
-#   is_draft  - ドラフトかどうか
 def determine_pr_status(reviews: List[Dict[str, Any]], is_draft: bool) -> str:
+    """レビュー結果から PR のステータス文字列を判定する
+
+    ドラフトであれば常に「ドラフト」とし、レビューの状態に応じて
+    「承認済み」「修正依頼」「レビュー中」「未レビュー」を返す。
+    """
     if is_draft:
         return "ドラフト"
     approved = [r for r in reviews if r.get("state") == "APPROVED"]
@@ -24,11 +34,8 @@ def determine_pr_status(reviews: List[Dict[str, Any]], is_draft: bool) -> str:
         return "レビュー中"
     return "未レビュー"
 
-# レビュワーの状態を絵文字付きで整形する
-# 引数:
-#   reviewer - レビュワー名
-#   state    - レビュー状態
 def format_reviewer_status(reviewer: str, state: str) -> str:
+    """レビュー状態に応じてレビュワー名に絵文字を付加する"""
     mapping = {
         "APPROVED": "✅",
         "CHANGES_REQUESTED": "❌",
@@ -38,9 +45,11 @@ def format_reviewer_status(reviewer: str, state: str) -> str:
     }
     return f"{reviewer}{mapping.get(state, '')}"
 
-# gh コマンドを実行するユーティリティ
-# エラー時には stderr/stdout の内容を表示して詳細な原因を確認できるようにする
 def run_gh(args: List[str]) -> str:
+    """gh コマンドを実行し結果を文字列で返す
+
+    失敗時は標準出力・標準エラーの内容を表示して `CalledProcessError` を送出する。
+    """
     result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode != 0:
         # エラー出力があれば優先して表示し、なければ標準出力を表示する
@@ -52,7 +61,11 @@ def run_gh(args: List[str]) -> str:
     return result.stdout
 
 def extract_fields(project_json: Dict[str, Any], fields: List[str]) -> Dict[str, str]:
-    """プロジェクトアイテムのフィールド名と値を辞書形式で抽出する"""
+    """Projects のフィールド値から指定した項目だけを抜き出す
+
+    `fieldValues.nodes` に現れる複数の値から、必要なフィールド名のみを
+    探索して返却する。存在しないフィールドは "-" で埋める。
+    """
     result = {f: "-" for f in fields}
     nodes = (
         project_json
@@ -76,11 +89,13 @@ def extract_fields(project_json: Dict[str, Any], fields: List[str]) -> Dict[str,
                 or (str(number_value) if number_value is not None else None)
             )
             if value:
+                # 進捗フィールドは数値を百分率に変換して扱う
                 if name == "Sub-issues progress" and number_value is not None:
                     result[name] = f"{int(number_value)}%"
                 else:
                     result[name] = value
             elif isinstance(fv.get("milestone"), dict):
+                # マイルストーン値はタイトルを取り出す
                 m_title = fv["milestone"].get("title")
                 if m_title:
                     result[name] = m_title
@@ -99,6 +114,7 @@ def main(output_dir: str) -> None:
             "| --- | ----- | ---- | --------- | --------- | ------ | ------------------- | -------- | ---- | -------- | ---------- | --------- | ------ |\n"
         )
 
+    # 1. オープン中の PR 一覧を取得
     pr_list_json = run_gh([
         "gh", "pr", "list", "--state", "open", "--limit", "100",
         "--json", "number,title,author,createdAt,updatedAt,url,isDraft",
@@ -107,6 +123,7 @@ def main(output_dir: str) -> None:
     pr_list = json.loads(pr_list_json)
 
     for pr in pr_list:
+        # 2. PR 詳細を取得
         number = pr["number"]
         title = pr["title"].replace("\n", " ").replace("|", "\\|")
         url = pr["url"]
@@ -120,6 +137,7 @@ def main(output_dir: str) -> None:
         assignees = [a["login"] for a in details.get("assignees", [])]
         assignees_str = " ".join(assignees) if assignees else "未割当"
 
+        # レビュワーのステータス文字列を生成
         reviewer_info_list = [format_reviewer_status(r, "PENDING") for r in requested]
         unique_reviews = {}
         for r in reviews:
@@ -130,9 +148,11 @@ def main(output_dir: str) -> None:
 
         pr_status = determine_pr_status(reviews, is_draft)
 
+        # 3. Projects (v2) のフィールド値を GraphQL で取得
         pr_node_id = run_gh(["gh", "pr", "view", str(number), "--json", "id", "-q", ".id"]).strip()
         print(f"PR_NODE_ID for PR {number}={pr_node_id}")
 
+        # プロジェクトアイテムに紐付く任意フィールドを取得するクエリ
         graphql_query = (
             "query($PR_NODE_ID: ID!) {\n"
             "  node(id: $PR_NODE_ID) {\n"
