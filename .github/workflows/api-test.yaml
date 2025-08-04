@@ -25,7 +25,7 @@ jobs:
         run: |
           # PR #123 の Project フィールドを jq で整形出力
           gh pr view $PR --json projectItems \
-            --jq '
-              .projectItems[].fieldValues.nodes[]
-              | {field: (.field.name // "-"), value: (.text // .name // .number // .date)}
-            '
+            # --jq '
+            #   .projectItems[].fieldValues.nodes[]
+            #   | {field: (.field.name // "-"), value: (.text // .name // .number // .date)}
+            # '
