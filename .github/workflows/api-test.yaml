@@ -1,11 +1,11 @@
 name: API Test
 
 on:
-  workflow_dispatch: # 手動実行トリガー
   push:
     # 自身のワークフロー定義ファイルが更新されたときだけトリガー
     paths:
       - .github/workflows/api-test.yaml
+  workflow_dispatch: # 手動実行トリガー
 
 env:
   PR: 3
@@ -15,14 +15,6 @@ env:
 jobs:
   pr-check:
     runs-on: ubuntu-latest
-    # permissions:
-    #   contents: write
-    #   pull-requests: read
-    #   # Classic と v2 の両方を読むなら両方付ける
-    #   repository-projects: read   # Classic Projects
-    #   # ↓ Projects (v2) 用のキーは存在しないので削除
-    #   # projects: read              # Projects v2
-
     steps:
       - uses: actions/checkout@v4
       - name: api-test
@@ -48,9 +40,9 @@ jobs:
               }
             }'
 
-          # PR #123 の Project フィールドを jq で整形出力
-          # gh pr view $PR --json projectItems \
-          #   --jq '
-          #     .projectItems[].fieldValues.nodes[]
-          #     | {field: (.field.name // "-"), value: (.text // .name // .number // .date)}
-          #   ' 
+          # PR の Project フィールドを jq で整形出力
+          gh pr view $PR --json projectItems \
+            --jq '
+              .projectItems[].fieldValues.nodes[]
+              | {field: (.field.name // "-"), value: (.text // .name // .number // .date)}
+            ' 
