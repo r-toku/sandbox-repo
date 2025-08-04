@@ -16,12 +16,13 @@ jobs:
   pr-check:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      pull-requests: read
-      # Classic と v2 の両方を読むなら両方付ける
-      repository-projects: read   # Classic Projects
-      # ↓ Projects (v2) 用のキーは存在しないので削除
-      # projects: read              # Projects v2
+      GH_TOKEN: ${{ secrets.GH_PROJECT_PAT }}
+      # contents: write
+      # pull-requests: read
+      # # Classic と v2 の両方を読むなら両方付ける
+      # repository-projects: read   # Classic Projects
+      # # ↓ Projects (v2) 用のキーは存在しないので削除
+      # # projects: read              # Projects v2
 
     steps:
       - uses: actions/checkout@v4
