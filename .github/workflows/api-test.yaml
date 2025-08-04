@@ -1,0 +1,28 @@
+name: API Test
+
+on:
+  workflow_dispatch: # 手動実行トリガー
+  push:
+    # 自身のワークフロー定義ファイルが更新されたときだけトリガー
+    paths:
+      - .github/workflows/api-test.yaml
+
+jobs:
+  pr-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: api-test
+        # CLI で取得した PR 情報を Markdown にまとめる
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # PR #123 の Project フィールドを jq で整形出力
+          gh pr view 123 --json projectItems \
+            --jq '
+              .projectItems[].fieldValues.nodes[]
+              | {field: (.field.name // "-"), value: (.text // .name // .number // .date)}
+            '
