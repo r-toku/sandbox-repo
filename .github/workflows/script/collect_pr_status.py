@@ -43,19 +43,40 @@ def run_gh(args: List[str]) -> str:
     result = subprocess.run(args, check=True, capture_output=True, text=True)
     return result.stdout
 
-# プロジェクト情報からフィールドを抽出する
-def extract_field(project_json: Dict[str, Any], field: str) -> str:
-    nodes = project_json.get("data", {}).get("node", {}).get("projectItems", {}).get("nodes", [])
+def extract_fields(project_json: Dict[str, Any], fields: List[str]) -> Dict[str, str]:
+    """プロジェクトアイテムのフィールド名と値を辞書形式で抽出する"""
+    result = {f: "-" for f in fields}
+    nodes = (
+        project_json
+        .get("data", {})
+        .get("node", {})
+        .get("projectItems", {})
+        .get("nodes", [])
+    )
     for n in nodes:
-        value = n.get(field)
-        if isinstance(value, dict):
-            for key in ("date", "name", "text"):
-                v = value.get(key)
-                if v:
-                    return v
-        elif value:
-            return value
-    return "-"
+        fv_nodes = n.get("fieldValues", {}).get("nodes", [])
+        for fv in fv_nodes:
+            name = fv.get("field", {}).get("name")
+            if name not in result:
+                continue
+            value = (
+                fv.get("text")
+                or fv.get("date")
+                or fv.get("name")
+                or fv.get("title")
+                or (str(fv.get("number")) if fv.get("number") is not None else None)
+            )
+            if value:
+                result[name] = value
+            elif isinstance(fv.get("progress"), dict):
+                percent = fv["progress"].get("percentage")
+                if percent is not None:
+                    result[name] = f"{percent}%"
+            elif isinstance(fv.get("milestone"), dict):
+                m_title = fv["milestone"].get("title")
+                if m_title:
+                    result[name] = m_title
+    return result
 
 def main(output_dir: str) -> None:
     os.makedirs(output_dir, exist_ok=True)
@@ -63,8 +84,12 @@ def main(output_dir: str) -> None:
     with open(output_file, "w", encoding="utf-8") as f:
         f.write("# Pull Request Status\n\n")
         f.write(f"Updated: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n\n")
-        f.write("| PR | Title | 状態 | Reviewers | Assignees | Status | Priority | Sprint | End date |\n")
-        f.write("| --- | ----- | ---- | --------- | --------- | ------ | -------- | ------ | --------- |\n")
+        f.write(
+            "| PR | Title | 状態 | Reviewers | Assignees | Status | Sub-issues progress | Priority | Size | Estimate | Start date | End date | Sprint |\n"
+        )
+        f.write(
+            "| --- | ----- | ---- | --------- | --------- | ------ | ------------------- | -------- | ---- | -------- | ---------- | --------- | ------ |\n"
+        )
 
     pr_list_json = run_gh([
         "gh", "pr", "list", "--state", "open", "--limit", "100",
@@ -106,10 +131,17 @@ def main(output_dir: str) -> None:
             "    ... on PullRequest {\n"
             "      projectItems(first: 1) {\n"
             "        nodes {\n"
-            "          status { name text }\n"
-            "          priority { name text }\n"
-            "          sprint { name text }\n"
-            "          endDate { date text }\n"
+            "          fieldValues(first: 20) {\n"
+            "            nodes {\n"
+            "              ... on ProjectV2ItemFieldSingleSelectValue { field { name } name }\n"
+            "              ... on ProjectV2ItemFieldTextValue        { field { name } text }\n"
+            "              ... on ProjectV2ItemFieldDateValue        { field { name } date }\n"
+            "              ... on ProjectV2ItemFieldIterationValue   { field { name } title }\n"
+            "              ... on ProjectV2ItemFieldNumberValue      { field { name } number }\n"
+            "              ... on ProjectV2ItemFieldMilestoneValue   { field { name } milestone { title } }\n"
+            "              ... on ProjectV2ItemFieldProgressValue    { field { name } progress { percentage } }\n"
+            "            }\n"
+            "          }\n"
             "        }\n"
             "      }\n"
             "    }\n"
@@ -123,19 +155,36 @@ def main(output_dir: str) -> None:
             ])
             print(f"PROJECT_JSON for PR {number}={project_json_str}")
             project_json = json.loads(project_json_str)
-            status = extract_field(project_json, "status")
-            priority = extract_field(project_json, "priority")
-            sprint = extract_field(project_json, "sprint")
-            end_date = extract_field(project_json, "endDate")
+            field_names = [
+                "Status",
+                "Sub-issues progress",
+                "Priority",
+                "Size",
+                "Estimate",
+                "Start date",
+                "End date",
+                "Sprint",
+            ]
+            field_values = extract_fields(project_json, field_names)
+            status = field_values["Status"]
+            sub_issues = field_values["Sub-issues progress"]
+            priority = field_values["Priority"]
+            size = field_values["Size"]
+            estimate = field_values["Estimate"]
+            start_date = field_values["Start date"]
+            end_date = field_values["End date"]
+            sprint = field_values["Sprint"]
         except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
             # プロジェクト情報の取得に失敗した場合は空欄を設定する
             print(f"PROJECT_JSON fetch failed for PR {number}: {e}")
-            status = priority = sprint = end_date = "-"
+            status = sub_issues = priority = size = estimate = start_date = end_date = sprint = "-"
 
+        row = (
+            f"| #{number} | [{title}]({url}) | {pr_status} | {reviewer_info} | {assignees_str} | "
+            f"{status} | {sub_issues} | {priority} | {size} | {estimate} | {start_date} | {end_date} | {sprint} |\n"
+        )
         with open(output_file, "a", encoding="utf-8") as f:
-            f.write(
-                f"| #{number} | [{title}]({url}) | {pr_status} | {reviewer_info} | {assignees_str} | {status} | {priority} | {sprint} | {end_date} |\n"
-            )
+            f.write(row)
 
     print(f"PR 情報を {output_file} に出力しました")
 
