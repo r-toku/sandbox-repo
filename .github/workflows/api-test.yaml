@@ -29,10 +29,10 @@ jobs:
           # gh auth refresh -s read:project
 
           # Classic / v2 判別
-          gh pr view 123 --json projectCards,projectItems --jq '.'
+          gh pr view $PR --json projectCards,projectItems --jq '.'
 
           # GraphQL で直接問い合わせ
-          gh api graphql -f owner=ORG -f repo=REPO -F number=123 -f query='
+          gh api graphql -f owner=ORG -f repo=REPO -F number=$PR -f query='
             query($owner:String!,$repo:String!,$number:Int!){
               repository(owner:$owner,name:$repo){
                 pullRequest(number:$number){
