@@ -23,9 +23,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # 認証情報とスコープ確認
+          gh auth status -t
+
+          # gh auth refresh -s read:project
+
+          # Classic / v2 判別
+          gh pr view 123 --json projectCards,projectItems --jq '.'
+
+          # GraphQL で直接問い合わせ
+          gh api graphql -f owner=ORG -f repo=REPO -F number=123 -f query='
+            query($owner:String!,$repo:String!,$number:Int!){
+              repository(owner:$owner,name:$repo){
+                pullRequest(number:$number){
+                  projectItems(first:10){ totalCount }
+                }
+              }
+            }'
+
           # PR #123 の Project フィールドを jq で整形出力
-          gh pr view $PR --json projectItems \
-            # --jq '
-            #   .projectItems[].fieldValues.nodes[]
-            #   | {field: (.field.name // "-"), value: (.text // .name // .number // .date)}
-            # ' 
+          # gh pr view $PR --json projectItems \
+          #   --jq '
+          #     .projectItems[].fieldValues.nodes[]
+          #     | {field: (.field.name // "-"), value: (.text // .name // .number // .date)}
+          #   ' 
