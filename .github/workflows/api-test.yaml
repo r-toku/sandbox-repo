@@ -10,7 +10,7 @@ on:
 env:
   PR: 3
   OWNER: ${{ github.repository_owner }}
-  REPO: ${{ github.repository##*/}       # or直接指定
+  REPO: ${{ github.event.repository.name }}       # or直接指定
 
 jobs:
   pr-check:
