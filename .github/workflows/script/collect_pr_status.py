@@ -137,13 +137,22 @@ def main(output_dir: str) -> None:
         assignees = [a["login"] for a in details.get("assignees", [])]
         assignees_str = " ".join(assignees) if assignees else "未割当"
 
-        # レビュワーのステータス文字列を生成
-        reviewer_info_list = [format_reviewer_status(r, "PENDING") for r in requested]
-        unique_reviews = {}
+        # レビュワーごとの最新ステータスを保持する辞書
+        reviewer_states = {r: "PENDING" for r in requested}
         for r in reviews:
-            unique_reviews[r["user"]["login"]] = r["state"]
-        for reviewer, state in unique_reviews.items():
-            reviewer_info_list.append(format_reviewer_status(reviewer, state))
+            author = r.get("author")
+            if not author:
+                continue
+            login = author.get("login")
+            if not login:
+                continue
+            # 同一レビュワーが複数回レビューした場合は最後の状態を採用する
+            reviewer_states[login] = r.get("state", "")
+
+        reviewer_info_list = [
+            format_reviewer_status(reviewer, state)
+            for reviewer, state in reviewer_states.items()
+        ]
         reviewer_info = "<br>".join(reviewer_info_list) if reviewer_info_list else "未割当"
 
         pr_status = determine_pr_status(reviews, is_draft)
