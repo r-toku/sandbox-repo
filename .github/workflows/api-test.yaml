@@ -16,7 +16,6 @@ jobs:
   pr-check:
     runs-on: ubuntu-latest
     permissions:
-      GH_TOKEN: ${{ secrets.GH_PROJECT_PAT }}
       # contents: write
       # pull-requests: read
       # # Classic と v2 の両方を読むなら両方付ける
@@ -29,7 +28,7 @@ jobs:
       - name: api-test
         # CLI で取得した PR 情報を Markdown にまとめる
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GH_PROJECT_PAT }}
         run: |
           # 認証情報とスコープ確認
           gh auth status -t
