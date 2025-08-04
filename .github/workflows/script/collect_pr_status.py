@@ -39,8 +39,16 @@ def format_reviewer_status(reviewer: str, state: str) -> str:
     return f"{reviewer}{mapping.get(state, '')}"
 
 # gh コマンドを実行するユーティリティ
+# エラー時には stderr/stdout の内容を表示して詳細な原因を確認できるようにする
 def run_gh(args: List[str]) -> str:
-    result = subprocess.run(args, check=True, capture_output=True, text=True)
+    result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode != 0:
+        # エラー出力があれば優先して表示し、なければ標準出力を表示する
+        err_msg = (result.stderr or result.stdout).strip()
+        print(f"gh command failed: {err_msg}")
+        raise subprocess.CalledProcessError(
+            result.returncode, args, output=result.stdout, stderr=result.stderr
+        )
     return result.stdout
 
 def extract_fields(project_json: Dict[str, Any], fields: List[str]) -> Dict[str, str]:
@@ -150,7 +158,7 @@ def main(output_dir: str) -> None:
         )
         try:
             project_json_str = run_gh([
-                "gh", "api", "graphql", "-H", "GraphQL-Features: projects_next_graphql",
+                "gh", "api", "graphql",
                 "-f", f"query={graphql_query}", "-f", f"PR_NODE_ID={pr_node_id}",
             ])
             print(f"PROJECT_JSON for PR {number}={project_json_str}")
@@ -174,9 +182,13 @@ def main(output_dir: str) -> None:
             start_date = field_values["Start date"]
             end_date = field_values["End date"]
             sprint = field_values["Sprint"]
-        except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
-            # プロジェクト情報の取得に失敗した場合は空欄を設定する
-            print(f"PROJECT_JSON fetch failed for PR {number}: {e}")
+        except subprocess.CalledProcessError as e:
+            # gh コマンドが失敗した場合はエラーメッセージを出力し、値を "-" とする
+            print(f"PROJECT_JSON fetch failed for PR {number}: {e.stderr}")
+            status = sub_issues = priority = size = estimate = start_date = end_date = sprint = "-"
+        except json.JSONDecodeError as e:
+            # JSON パースに失敗した場合も値を "-" とする
+            print(f"PROJECT_JSON parse failed for PR {number}: {e}")
             status = sub_issues = priority = size = estimate = start_date = end_date = sprint = "-"
 
         row = (
