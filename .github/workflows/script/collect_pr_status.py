@@ -67,19 +67,19 @@ def extract_fields(project_json: Dict[str, Any], fields: List[str]) -> Dict[str,
             name = fv.get("field", {}).get("name")
             if name not in result:
                 continue
+            number_value = fv.get("number")
             value = (
                 fv.get("text")
                 or fv.get("date")
                 or fv.get("name")
                 or fv.get("title")
-                or (str(fv.get("number")) if fv.get("number") is not None else None)
+                or (str(number_value) if number_value is not None else None)
             )
             if value:
-                result[name] = value
-            elif isinstance(fv.get("progress"), dict):
-                percent = fv["progress"].get("percentage")
-                if percent is not None:
-                    result[name] = f"{percent}%"
+                if name == "Sub-issues progress" and number_value is not None:
+                    result[name] = f"{int(number_value)}%"
+                else:
+                    result[name] = value
             elif isinstance(fv.get("milestone"), dict):
                 m_title = fv["milestone"].get("title")
                 if m_title:
@@ -139,19 +139,33 @@ def main(output_dir: str) -> None:
             "    ... on PullRequest {\n"
             "      projectItems(first: 1) {\n"
             "        nodes {\n"
-            "          __typename\n"
             "          fieldValues(first: 20) {\n"
             "            nodes {\n"
             "              __typename\n"
-            "              field {\n"
-            "                ... on ProjectV2FieldCommon { name }\n"
+            "              ... on ProjectV2ItemFieldSingleSelectValue {\n"
+            "                field { ... on ProjectV2FieldCommon { name } }\n"
+            "                name\n"
             "              }\n"
-            "              ... on ProjectV2ItemFieldSingleSelectValue { name }\n"
-            "              ... on ProjectV2ItemFieldTextValue        { text }\n"
-            "              ... on ProjectV2ItemFieldDateValue        { date }\n"
-            "              ... on ProjectV2ItemFieldIterationValue   { title }\n"
-            "              ... on ProjectV2ItemFieldNumberValue      { number progress { percentage } }\n"
-            "              ... on ProjectV2ItemFieldMilestoneValue   { milestone { title } }\n"
+            "              ... on ProjectV2ItemFieldTextValue {\n"
+            "                field { ... on ProjectV2FieldCommon { name } }\n"
+            "                text\n"
+            "              }\n"
+            "              ... on ProjectV2ItemFieldDateValue {\n"
+            "                field { ... on ProjectV2FieldCommon { name } }\n"
+            "                date\n"
+            "              }\n"
+            "              ... on ProjectV2ItemFieldIterationValue {\n"
+            "                field { ... on ProjectV2FieldCommon { name } }\n"
+            "                title\n"
+            "              }\n"
+            "              ... on ProjectV2ItemFieldNumberValue {\n"
+            "                field { ... on ProjectV2FieldCommon { name } }\n"
+            "                number\n"
+            "              }\n"
+            "              ... on ProjectV2ItemFieldMilestoneValue {\n"
+            "                field { ... on ProjectV2FieldCommon { name } }\n"
+            "                milestone { title }\n"
+            "              }\n"
             "            }\n"
             "          }\n"
             "        }\n"
