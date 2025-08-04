@@ -115,15 +115,20 @@ def main(output_dir: str) -> None:
             "  }\n"
             "}\n"
         )
-        project_json_str = run_gh([
-            "gh", "api", "graphql", "-H", "GraphQL-Features: projects_next_graphql",
-            "-f", f"query={graphql_query}", "-f", f"PR_NODE_ID={pr_node_id}",
-        ])
-        print(f"PROJECT_JSON for PR {number}={project_json_str}")
-        project_json = json.loads(project_json_str)
-        target_date = extract_field(project_json, "targetDate")
-        priority = extract_field(project_json, "priority")
-        sprint = extract_field(project_json, "sprint")
+        try:
+            project_json_str = run_gh([
+                "gh", "api", "graphql", "-H", "GraphQL-Features: projects_next_graphql",
+                "-f", f"query={graphql_query}", "-f", f"PR_NODE_ID={pr_node_id}",
+            ])
+            print(f"PROJECT_JSON for PR {number}={project_json_str}")
+            project_json = json.loads(project_json_str)
+            target_date = extract_field(project_json, "targetDate")
+            priority = extract_field(project_json, "priority")
+            sprint = extract_field(project_json, "sprint")
+        except (subprocess.CalledProcessError, json.JSONDecodeError) as e:
+            # プロジェクト情報の取得に失敗した場合は空欄を設定する
+            print(f"PROJECT_JSON fetch failed for PR {number}: {e}")
+            target_date = priority = sprint = "-"
 
         with open(output_file, "a", encoding="utf-8") as f:
             f.write(
