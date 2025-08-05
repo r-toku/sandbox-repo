@@ -14,7 +14,16 @@ import datetime
 import json
 import os
 import subprocess
+import logging
 from typing import List, Dict, Any
+
+# 環境変数 LOG_LEVEL を参照してログレベルを設定
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(levelname)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 def determine_pr_status(reviews: List[Dict[str, Any]], is_draft: bool) -> str:
     """レビュー結果から PR のステータス文字列を判定する
@@ -54,7 +63,7 @@ def run_gh(args: List[str]) -> str:
     if result.returncode != 0:
         # エラー出力があれば優先して表示し、なければ標準出力を表示する
         err_msg = (result.stderr or result.stdout).strip()
-        print(f"gh command failed: {err_msg}")
+        logger.error(f"gh command failed: {err_msg}")
         raise subprocess.CalledProcessError(
             result.returncode, args, output=result.stdout, stderr=result.stderr
         )
@@ -111,22 +120,24 @@ def main(output_dir: str) -> None:
         )
 
     # 1. オープン中の PR 一覧を取得
+    #    number や title などの基本情報をまとめて JSON 形式で取得する
     pr_list_json = run_gh([
         "gh", "pr", "list", "--state", "open", "--limit", "100",
         "--json", "number,title,author,createdAt,updatedAt,url,isDraft",
     ])
-    print(f"PR_LIST={pr_list_json}")
+    logger.debug(f"PR_LIST={pr_list_json}")
     pr_list = json.loads(pr_list_json)
 
     for pr in pr_list:
         # 2. PR 詳細を取得
+        #    レビュー履歴(reviews)、レビュー依頼(reviewRequests)、アサイン(assignees)を取得する
         number = pr["number"]
         title = pr["title"].replace("\n", " ").replace("|", "\\|")
         url = pr["url"]
         is_draft = pr.get("isDraft", False)
 
         details_json = run_gh(["gh", "pr", "view", str(number), "--json", "reviews,reviewRequests,assignees"])
-        print(f"DETAILS for PR {number}={details_json}")
+        logger.debug(f"DETAILS for PR {number}={details_json}")
         details = json.loads(details_json)
         reviews = details.get("reviews", [])
         requested = [r["login"] for r in details.get("reviewRequests", [])]
@@ -157,10 +168,13 @@ def main(output_dir: str) -> None:
         pr_status = determine_pr_status(reviews, is_draft)
 
         # 3. Projects (v2) のフィールド値を GraphQL で取得
+        #    まず gh pr view で PR の node ID を取得する
         pr_node_id = run_gh(["gh", "pr", "view", str(number), "--json", "id", "-q", ".id"]).strip()
-        print(f"PR_NODE_ID for PR {number}={pr_node_id}")
+        logger.debug(f"PR_NODE_ID for PR {number}={pr_node_id}")
 
         # プロジェクトアイテムに紐付く任意フィールドを取得するクエリ
+        # PullRequest の projectItems から fieldValues を列挙し、
+        # 各フィールド型ごとに name/text/date などの値を取り出す
         graphql_query = (
             "query($PR_NODE_ID: ID!) {\n"
             "  node(id: $PR_NODE_ID) {\n"
@@ -202,12 +216,13 @@ def main(output_dir: str) -> None:
             "  }\n"
             "}\n"
         )
+        # 上記クエリを gh api graphql で実行してフィールド値を取得する
         try:
             project_json_str = run_gh([
                 "gh", "api", "graphql",
                 "-f", f"query={graphql_query}", "-f", f"PR_NODE_ID={pr_node_id}",
             ])
-            print(f"PROJECT_JSON for PR {number}={project_json_str}")
+            logger.debug(f"PROJECT_JSON for PR {number}={project_json_str}")
             project_json = json.loads(project_json_str)
             field_names = [
                 "Status",
@@ -222,11 +237,11 @@ def main(output_dir: str) -> None:
             sprint = field_values["Sprint"]
         except subprocess.CalledProcessError as e:
             # gh コマンドが失敗した場合はエラーメッセージを出力し、値を "-" とする
-            print(f"PROJECT_JSON fetch failed for PR {number}: {e.stderr}")
+            logger.error(f"PROJECT_JSON fetch failed for PR {number}: {e.stderr}")
             status = priority = target_date = sprint = "-"
         except json.JSONDecodeError as e:
             # JSON パースに失敗した場合も値を "-" とする
-            print(f"PROJECT_JSON parse failed for PR {number}: {e}")
+            logger.error(f"PROJECT_JSON parse failed for PR {number}: {e}")
             status = priority = target_date = sprint = "-"
 
         row = (
@@ -236,7 +251,7 @@ def main(output_dir: str) -> None:
         with open(output_file, "a", encoding="utf-8") as f:
             f.write(row)
 
-    print(f"PR 情報を {output_file} に出力しました")
+    logger.info(f"PR 情報を {output_file} に出力しました")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PR 情報を収集して Markdown に出力します")
