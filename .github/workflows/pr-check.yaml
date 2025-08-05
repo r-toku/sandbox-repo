@@ -27,7 +27,7 @@ jobs:
         # CLI で取得した PR 情報を Markdown にまとめる
         env:
           GH_TOKEN: ${{ secrets.GH_PROJECT_PAT }}
-          LOG_LEVEL: INFO
+          LOG_LEVEL: DEBUG
         run: |
           ls -l .github/workflows/script/
           python .github/workflows/script/collect_pr_status.py wiki
@@ -35,5 +35,5 @@ jobs:
         # Wiki のチェックアウトが成功したときのみ更新を実行
         if: steps.checkout-wiki.outcome == 'success'
         env:
-          LOG_LEVEL: INFO
+          LOG_LEVEL: DEBUG
         run: python .github/workflows/script/update_wiki.py wiki
