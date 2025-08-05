@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import logging
+import base64
 from typing import List, Dict, Any
 
 # 環境変数 LOG_LEVEL を参照してログレベルを設定
@@ -118,6 +119,26 @@ def main(output_dir: str) -> None:
         f.write(
             "| --- | ----- | ---- | --------- | --------- | ------ | -------- | ----------- | ------ |\n"
         )
+    # 環境変数 LOGIN_USERS_B64 をデコードしてユーザーと組織の対応表を作成
+    login_user_map: Dict[str, str] = {}
+    org_order: List[str] = []
+    encoded = os.environ.get("LOGIN_USERS_B64")
+    if encoded:
+        try:
+            decoded = base64.b64decode(encoded).decode()
+            login_users_json = json.loads(decoded)
+            for item in login_users_json.get("loginUsers", []):
+                login = item.get("loginUser")
+                org = item.get("organization")
+                if login and org:
+                    login_user_map[login] = org
+                    if org not in org_order:
+                        org_order.append(org)
+        except Exception as e:
+            # デコードや JSON パースに失敗した場合はログに記録して空のマッピングを利用する
+            logger.error(f"LOGIN_USERS_B64 decode failed: {e}")
+    else:
+        logger.warning("LOGIN_USERS_B64 is not set")
 
     # 1. オープン中の PR 一覧を取得
     #    number や title などの基本情報をまとめて JSON 形式で取得する
@@ -158,12 +179,22 @@ def main(output_dir: str) -> None:
                 continue
             # 同一レビュワーが複数回レビューした場合は最後の状態を採用する
             reviewer_states[login] = r.get("state", "")
-
-        reviewer_info_list = [
-            format_reviewer_status(reviewer, state)
-            for reviewer, state in reviewer_states.items()
-        ]
-        reviewer_info = "<br>".join(reviewer_info_list) if reviewer_info_list else "未割当"
+        # 組織ごとにレビュワーを分類し表示用の文字列を生成する
+        org_groups: Dict[str, List[str]] = {org: [] for org in org_order}
+        org_groups["other"] = []
+        for reviewer, state in reviewer_states.items():
+            org = login_user_map.get(reviewer, "other")
+            org_groups.setdefault(org, []).append(
+                format_reviewer_status(reviewer, state)
+            )
+        reviewer_info_parts: List[str] = []
+        for org in org_order + ["other"]:
+            names = org_groups.get(org)
+            if names:
+                reviewer_info_parts.append(f"{org}: {' '.join(names)}")
+        reviewer_info = (
+            "<br>".join(reviewer_info_parts) if reviewer_info_parts else "未割当"
+        )
 
         pr_status = determine_pr_status(reviews, is_draft)
 
