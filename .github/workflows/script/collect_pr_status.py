@@ -89,11 +89,7 @@ def extract_fields(project_json: Dict[str, Any], fields: List[str]) -> Dict[str,
                 or (str(number_value) if number_value is not None else None)
             )
             if value:
-                # 進捗フィールドは数値を百分率に変換して扱う
-                if name == "Sub-issues progress" and number_value is not None:
-                    result[name] = f"{int(number_value)}%"
-                else:
-                    result[name] = value
+                result[name] = value
             elif isinstance(fv.get("milestone"), dict):
                 # マイルストーン値はタイトルを取り出す
                 m_title = fv["milestone"].get("title")
@@ -108,10 +104,10 @@ def main(output_dir: str) -> None:
         f.write("# Pull Request Status\n\n")
         f.write(f"Updated: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n\n")
         f.write(
-            "| PR | Title | 状態 | Reviewers | Assignees | Status | Sub-issues progress | Priority | Size | Estimate | Start date | End date | Sprint |\n"
+            "| PR | Title | 状態 | Reviewers | Assignees | Status | Priority | Target Date | Sprint |\n"
         )
         f.write(
-            "| --- | ----- | ---- | --------- | --------- | ------ | ------------------- | -------- | ---- | -------- | ---------- | --------- | ------ |\n"
+            "| --- | ----- | ---- | --------- | --------- | ------ | -------- | ----------- | ------ |\n"
         )
 
     # 1. オープン中の PR 一覧を取得
@@ -215,35 +211,27 @@ def main(output_dir: str) -> None:
             project_json = json.loads(project_json_str)
             field_names = [
                 "Status",
-                "Sub-issues progress",
                 "Priority",
-                "Size",
-                "Estimate",
-                "Start date",
-                "End date",
+                "Target date",
                 "Sprint",
             ]
             field_values = extract_fields(project_json, field_names)
             status = field_values["Status"]
-            sub_issues = field_values["Sub-issues progress"]
             priority = field_values["Priority"]
-            size = field_values["Size"]
-            estimate = field_values["Estimate"]
-            start_date = field_values["Start date"]
-            end_date = field_values["End date"]
+            target_date = field_values["Target date"]
             sprint = field_values["Sprint"]
         except subprocess.CalledProcessError as e:
             # gh コマンドが失敗した場合はエラーメッセージを出力し、値を "-" とする
             print(f"PROJECT_JSON fetch failed for PR {number}: {e.stderr}")
-            status = sub_issues = priority = size = estimate = start_date = end_date = sprint = "-"
+            status = priority = target_date = sprint = "-"
         except json.JSONDecodeError as e:
             # JSON パースに失敗した場合も値を "-" とする
             print(f"PROJECT_JSON parse failed for PR {number}: {e}")
-            status = sub_issues = priority = size = estimate = start_date = end_date = sprint = "-"
+            status = priority = target_date = sprint = "-"
 
         row = (
             f"| #{number} | [{title}]({url}) | {pr_status} | {reviewer_info} | {assignees_str} | "
-            f"{status} | {sub_issues} | {priority} | {size} | {estimate} | {start_date} | {end_date} | {sprint} |\n"
+            f"{status} | {priority} | {target_date} | {sprint} |\n"
         )
         with open(output_file, "a", encoding="utf-8") as f:
             f.write(row)
