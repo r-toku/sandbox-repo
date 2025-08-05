@@ -146,6 +146,9 @@ def main(output_dir: str) -> None:
             login = author.get("login")
             if not login:
                 continue
+            # レビュー再依頼中であれば過去の結果を無視する
+            if login in reviewer_states:
+                continue
             # 同一レビュワーが複数回レビューした場合は最後の状態を採用する
             reviewer_states[login] = r.get("state", "")
 
