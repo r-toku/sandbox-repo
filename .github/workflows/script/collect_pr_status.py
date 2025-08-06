@@ -110,15 +110,7 @@ def extract_fields(project_json: Dict[str, Any], fields: List[str]) -> Dict[str,
 def main(output_dir: str) -> None:
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, "PR_Status.md")
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write("# Pull Request Status\n\n")
-        f.write(f"Updated: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n\n")
-        f.write(
-            "| PR | Title | 状態 | Reviewers | Assignees | Status | Priority | Target Date | Sprint |\n"
-        )
-        f.write(
-            "| --- | ----- | ---- | --------- | --------- | ------ | -------- | ----------- | ------ |\n"
-        )
+
     # 環境変数 LOGIN_USERS_B64 をデコードしてユーザーと組織の対応表を作成
     login_user_map: Dict[str, str] = {}
     org_order: List[str] = []
@@ -139,6 +131,25 @@ def main(output_dir: str) -> None:
             logger.error(f"LOGIN_USERS_B64 decode failed: {e}")
     else:
         logger.warning("LOGIN_USERS_B64 is not set")
+
+    # Markdown のヘッダを動的に生成する
+    reviewer_cols = [f"{org} Reviewers" for org in org_order + ["other"]]
+    header_cols = [
+        "PR",
+        "Title",
+        "状態",
+        *reviewer_cols,
+        "Assignees",
+        "Status",
+        "Priority",
+        "Target Date",
+        "Sprint",
+    ]
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write("# Pull Request Status\n\n")
+        f.write(f"Updated: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n\n")
+        f.write("| " + " | ".join(header_cols) + " |\n")
+        f.write("| " + " | ".join(["---"] * len(header_cols)) + " |\n")
 
     # 1. オープン中の PR 一覧を取得
     #    number や title などの基本情報をまとめて JSON 形式で取得する
@@ -179,7 +190,7 @@ def main(output_dir: str) -> None:
                 continue
             # 同一レビュワーが複数回レビューした場合は最後の状態を採用する
             reviewer_states[login] = r.get("state", "")
-        # 組織ごとにレビュワーを分類し表示用の文字列を生成する
+        # 組織ごとにレビュワーを分類し各列に表示する文字列を生成する
         org_groups: Dict[str, List[str]] = {org: [] for org in org_order}
         org_groups["other"] = []
         for reviewer, state in reviewer_states.items():
@@ -187,14 +198,6 @@ def main(output_dir: str) -> None:
             org_groups.setdefault(org, []).append(
                 format_reviewer_status(reviewer, state)
             )
-        reviewer_info_parts: List[str] = []
-        for org in org_order + ["other"]:
-            names = org_groups.get(org)
-            if names:
-                reviewer_info_parts.append(f"{org}: {' '.join(names)}")
-        reviewer_info = (
-            "<br>".join(reviewer_info_parts) if reviewer_info_parts else "未割当"
-        )
 
         pr_status = determine_pr_status(reviews, is_draft)
 
@@ -275,10 +278,19 @@ def main(output_dir: str) -> None:
             logger.error(f"PROJECT_JSON parse failed for PR {number}: {e}")
             status = priority = target_date = sprint = "-"
 
-        row = (
-            f"| #{number} | [{title}]({url}) | {pr_status} | {reviewer_info} | {assignees_str} | "
-            f"{status} | {priority} | {target_date} | {sprint} |\n"
+        # Markdown 出力用の行を組み立てる
+        row_fields: List[str] = [
+            f"#{number}",
+            f"[{title}]({url})",
+            pr_status,
+        ]
+        for org in org_order + ["other"]:
+            names = org_groups.get(org)
+            row_fields.append(" ".join(names) if names else "-")
+        row_fields.extend(
+            [assignees_str, status, priority, target_date, sprint]
         )
+        row = "| " + " | ".join(row_fields) + " |\n"
         with open(output_file, "a", encoding="utf-8") as f:
             f.write(row)
 
