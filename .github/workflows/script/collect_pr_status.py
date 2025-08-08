@@ -178,15 +178,19 @@ def main(output_dir: str) -> None:
 
         # レビュワーごとの最新ステータスを保持する辞書
         reviewer_states = {r: "PENDING" for r in requested}
-        for r in reviews:
+        # submittedAt で昇順に並べ替えて最新レビューを反映する
+        sorted_reviews = sorted(
+            reviews, key=lambda x: x.get("submittedAt", "")
+        )
+        for r in sorted_reviews:
             author = r.get("author")
             if not author:
                 continue
             login = author.get("login")
             if not login:
                 continue
-            # レビュー再依頼中であれば過去の結果を無視する
-            if login in reviewer_states:
+            # 現在レビュー再依頼中のレビュワーは保留状態のままにする
+            if login in requested:
                 continue
             # 同一レビュワーが複数回レビューした場合は最後の状態を採用する
             reviewer_states[login] = r.get("state", "")
