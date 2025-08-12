@@ -8,6 +8,15 @@
 import os
 import subprocess
 import sys
+import logging
+
+# 環境変数 LOG_LEVEL を参照してログレベルを設定
+LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(levelname)s: %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 def run(cmd):
     """サブプロセスでコマンドを実行しエラー時には例外を送出する"""
@@ -29,7 +38,7 @@ def main(wiki_dir: str) -> None:
         ])
 
     if not os.path.exists("PR_Status.md"):
-        print("PR_Status.md が見つかりません")
+        logger.error("PR_Status.md が見つかりません")
         sys.exit(1)
 
     # 差分があればコミットしてプッシュする
@@ -42,10 +51,10 @@ def main(wiki_dir: str) -> None:
         run(["git", "commit", "-m", "Update PR status"])
         run(["git", "push"])
     else:
-        print("更新内容がないためコミットしません")
+        logger.info("更新内容がないためコミットしません")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Wiki リポジトリのパスを指定してください", file=sys.stderr)
+        logger.error("Wiki リポジトリのパスを指定してください")
         sys.exit(1)
     main(sys.argv[1])
