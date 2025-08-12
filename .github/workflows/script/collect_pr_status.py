@@ -7,6 +7,7 @@ GitHub CLI (`gh`) を利用して以下の情報を収集する。
 * レビューの状況や割り当てられたレビュワー
 * Projects (v2) に紐付くフィールド値
 
+`--repo` 引数で対象リポジトリを指定可能で、リポジトリごとの Markdown を出力する。
 収集した内容を Wiki に掲載するための Markdown 形式にまとめる。
 """
 import argparse
@@ -107,9 +108,18 @@ def extract_fields(project_json: Dict[str, Any], fields: List[str]) -> Dict[str,
                     result[name] = m_title
     return result
 
-def main(output_dir: str) -> None:
+def main(output_dir: str, repo: str = "") -> None:
     os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(output_dir, "PR_Status.md")
+    # 取得対象のリポジトリを決定し、gh コマンド用の引数と出力ファイル名を組み立てる
+    if repo:
+        repo_arg = ["--repo", repo]
+        file_suffix = repo.replace("/", "_")
+    else:
+        repo_env = os.environ.get("GITHUB_REPOSITORY", "")
+        repo = repo_env
+        repo_arg = ["--repo", repo] if repo else []
+        file_suffix = repo.replace("/", "_") if repo else "unknown"
+    output_file = os.path.join(output_dir, f"PR_Status_{file_suffix}.md")
 
     # 環境変数 LOGIN_USERS_B64 をデコードしてユーザーと組織の対応表を作成
     login_user_map: Dict[str, str] = {}
@@ -146,17 +156,18 @@ def main(output_dir: str) -> None:
         "Sprint",
     ]
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write("# Pull Request Status\n\n")
+        f.write(f"# Pull Request Status for {repo}\n\n")
         f.write(f"Updated: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n\n")
         f.write("| " + " | ".join(header_cols) + " |\n")
         f.write("| " + " | ".join(["---"] * len(header_cols)) + " |\n")
 
     # 1. オープン中の PR 一覧を取得
     #    number や title などの基本情報をまとめて JSON 形式で取得する
-    pr_list_json = run_gh([
+    pr_list_cmd = [
         "gh", "pr", "list", "--state", "open", "--limit", "100",
         "--json", "number,title,author,createdAt,updatedAt,url,isDraft",
-    ])
+    ] + repo_arg
+    pr_list_json = run_gh(pr_list_cmd)
     logger.debug(f"PR_LIST={pr_list_json}")
     pr_list = json.loads(pr_list_json)
 
@@ -168,7 +179,10 @@ def main(output_dir: str) -> None:
         url = pr["url"]
         is_draft = pr.get("isDraft", False)
 
-        details_json = run_gh(["gh", "pr", "view", str(number), "--json", "reviews,reviewRequests,assignees"])
+        details_cmd = [
+            "gh", "pr", "view", str(number), "--json", "reviews,reviewRequests,assignees",
+        ] + repo_arg
+        details_json = run_gh(details_cmd)
         logger.debug(f"DETAILS for PR {number}={details_json}")
         details = json.loads(details_json)
         reviews = details.get("reviews", [])
@@ -207,7 +221,8 @@ def main(output_dir: str) -> None:
 
         # 3. Projects (v2) のフィールド値を GraphQL で取得
         #    まず gh pr view で PR の node ID を取得する
-        pr_node_id = run_gh(["gh", "pr", "view", str(number), "--json", "id", "-q", ".id"]).strip()
+        node_cmd = ["gh", "pr", "view", str(number), "--json", "id", "-q", ".id"] + repo_arg
+        pr_node_id = run_gh(node_cmd).strip()
         logger.debug(f"PR_NODE_ID for PR {number}={pr_node_id}")
 
         # プロジェクトアイテムに紐付く任意フィールドを取得するクエリ
@@ -303,5 +318,6 @@ def main(output_dir: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="PR 情報を収集して Markdown に出力します")
     parser.add_argument("output_dir", nargs="?", default=".")
+    parser.add_argument("--repo", help="対象とするリポジトリ (owner/name)", default="")
     args = parser.parse_args()
-    main(args.output_dir)
+    main(args.output_dir, args.repo)
