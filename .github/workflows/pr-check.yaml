@@ -14,6 +14,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: read
+    env:
+      REPOSITORY_NAME: ${{ github.event.repository.name }} # Wiki ページ名に使用
     steps:
       - uses: actions/checkout@v4
       - id: checkout-wiki
