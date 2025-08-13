@@ -26,7 +26,7 @@ jobs:
       - name: pr-check
         # CLI で取得した PR 情報を Markdown にまとめる
         env:
-          GH_TOKEN: ${{ secrets.GH_PROJECT_PAT }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
           LOG_LEVEL: INFO
           LOGIN_USERS_B64: ${{ vars.LOGIN_USERS_B64 }}
           # スペースや改行で区切って複数指定可能なサブリポジトリ一覧
