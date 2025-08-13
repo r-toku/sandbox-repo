@@ -129,6 +129,9 @@ def main(output_dir: str, repo: str = "") -> None:
         try:
             decoded = base64.b64decode(encoded).decode()
             login_users_json = json.loads(decoded)
+            logger.debug(
+                f"LOGIN_USERS_JSON={json.dumps(login_users_json, ensure_ascii=False)}"
+            )  # デコード結果を出力
             for item in login_users_json.get("loginUsers", []):
                 login = item.get("loginUser")
                 org = item.get("organization")
