@@ -28,11 +28,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_PROJECT_PAT }}
           LOG_LEVEL: INFO
-          LOGIN_USERS_B64: "eyJsb2dpblVzZXJzIjogW3sibG9naW5Vc2VyIjogImljaGktM2hFRyIsICJvcmdhbml6YXRpb24iOiAieW9ndXJ0In0sIHsibG9naW5Vc2VyIjogImljaGk3OTAxIiwgIm9yZ2FuaXphdGlvbiI6ICJjb3JpYW5kZXIifV19"
+          LOGIN_USERS_B64: ${{ vars.LOGIN_USERS_B64 }}
           # スペースや改行で区切って複数指定可能なサブリポジトリ一覧
           SUB_REPOSITORY: |
-            owner/another-repo
-            owner/extra-repo
+            r-toku/sandbox-repo
         run: |
           ls -l .github/workflows/script/
           # メインリポジトリと複数のサブリポジトリの PR ステータスを収集
