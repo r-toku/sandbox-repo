@@ -27,7 +27,7 @@ jobs:
         # CLI で取得した PR 情報を Markdown にまとめる
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          LOG_LEVEL: INFO
+          LOG_LEVEL: DEBUG
           LOGIN_USERS_B64: ${{ vars.LOGIN_USERS_B64 }}
           # スペースや改行で区切って複数指定可能なサブリポジトリ一覧
           SUB_REPOSITORY: |
@@ -43,5 +43,5 @@ jobs:
         # Wiki のチェックアウトが成功したときのみ更新を実行
         if: steps.checkout-wiki.outcome == 'success'
         env:
-          LOG_LEVEL: INFO
+          LOG_LEVEL: DEBUG
         run: python .github/workflows/script/update_wiki.py wiki
