@@ -280,13 +280,13 @@ def main(output_dir: str, repo: str = "") -> None:
             field_names = [
                 "Status",
                 "Priority",
-                "Target date",
+                "Target Date",
                 "Sprint",
             ]
             field_values = extract_fields(project_json, field_names)
             status = field_values["Status"]
             priority = field_values["Priority"]
-            target_date = field_values["Target date"]
+            target_date = field_values["Target Date"]
             sprint = field_values["Sprint"]
         except subprocess.CalledProcessError as e:
             # gh コマンドが失敗した場合はエラーメッセージを出力し、値を "-" とする
