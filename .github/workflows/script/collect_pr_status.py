@@ -17,7 +17,7 @@ import os
 import subprocess
 import logging
 import base64
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Set
 
 # 環境変数 LOG_LEVEL を参照してログレベルを設定
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -27,23 +27,36 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def determine_pr_status(reviews: List[Dict[str, Any]], is_draft: bool) -> str:
-    """レビュー結果から PR のステータス文字列を判定する
+def determine_pr_status(
+    reviewer_states: Dict[str, str],
+    is_draft: bool,
+    required_reviewers: Set[str],
+) -> str:
+    """レビューの状態と必須レビュワーの承認状況から
+    PR のステータス文字列を判定する"""
 
-    ドラフトであれば常に「ドラフト」とし、レビューの状態に応じて
-    「承認済み」「修正依頼」「レビュー中」「未レビュー」を返す。
-    """
+    # ドラフトであれば常にドラフトを返す
     if is_draft:
         return "ドラフト"
-    approved = [r for r in reviews if r.get("state") == "APPROVED"]
-    changes = [r for r in reviews if r.get("state") == "CHANGES_REQUESTED"]
-    if approved:
-        return "承認済み"
-    if changes:
+
+    # コメントが一件もない場合は未レビュー
+    if not reviewer_states or all(s == "PENDING" for s in reviewer_states.values()):
+        return "未レビュー"
+
+    # 修正依頼がある場合は修正依頼を優先
+    if any(s == "CHANGES_REQUESTED" for s in reviewer_states.values()):
         return "修正依頼"
-    if reviews:
-        return "レビュー中"
-    return "未レビュー"
+
+    # 承認済みの判定
+    approvals = {u for u, s in reviewer_states.items() if s == "APPROVED"}
+    required_for_pr = required_reviewers & reviewer_states.keys()
+    if required_for_pr and required_for_pr.issubset(approvals):
+        return "承認済み"
+    if approvals and all(s == "APPROVED" for s in reviewer_states.values()):
+        return "承認済み"
+
+    # 上記以外はレビュー中
+    return "レビュー中"
 
 def format_reviewer_status(reviewer: str, state: str) -> str:
     """レビュー状態に応じてレビュワー名に絵文字を付加する"""
@@ -124,6 +137,7 @@ def main(output_dir: str, repo: str = "") -> None:
     # 環境変数 LOGIN_USERS_B64 をデコードしてユーザーと組織の対応表を作成
     login_user_map: Dict[str, str] = {}
     org_order: List[str] = []
+    required_reviewers: Set[str] = set()
     encoded = os.environ.get("LOGIN_USERS_B64")
     if encoded:
         try:
@@ -135,10 +149,13 @@ def main(output_dir: str, repo: str = "") -> None:
             for item in login_users_json.get("loginUsers", []):
                 login = item.get("loginUser")
                 org = item.get("organization")
+                required = item.get("requiredReviewer")
                 if login and org:
                     login_user_map[login] = org
                     if org not in org_order:
                         org_order.append(org)
+                    if required:
+                        required_reviewers.add(login)
         except Exception as e:
             # デコードや JSON パースに失敗した場合はログに記録して空のマッピングを利用する
             logger.error(f"LOGIN_USERS_B64 decode failed: {e}")
@@ -220,7 +237,7 @@ def main(output_dir: str, repo: str = "") -> None:
                 format_reviewer_status(reviewer, state)
             )
 
-        pr_status = determine_pr_status(reviews, is_draft)
+        pr_status = determine_pr_status(reviewer_states, is_draft, required_reviewers)
 
         # 3. Projects (v2) のフィールド値を GraphQL で取得
         #    まず gh pr view で PR の node ID を取得する
