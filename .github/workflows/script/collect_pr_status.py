@@ -132,7 +132,8 @@ def main(output_dir: str, repo: str = "") -> None:
         repo = repo_env
         repo_arg = ["--repo", repo] if repo else []
         file_suffix = repo.replace("/", "_") if repo else "unknown"
-    output_file = os.path.join(output_dir, f"PR_Status_{file_suffix}.md")
+    # 出力ファイル名を <リポジトリ名>_PR_status.md 形式で生成
+    output_file = os.path.join(output_dir, f"{file_suffix}_PR_status.md")
 
     # 環境変数 LOGIN_USERS_B64 をデコードしてユーザーと組織の対応表を作成
     login_user_map: Dict[str, str] = {}

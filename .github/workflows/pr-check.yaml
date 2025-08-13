@@ -24,7 +24,7 @@ jobs:
           repository: ${{ github.repository }}.wiki
           path: wiki
       - name: pr-check
-        # CLI で取得した PR 情報を Markdown にまとめる
+        # CLI で取得した PR 情報を <リポジトリ名>_PR_status.md として Markdown にまとめる
         env:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           LOG_LEVEL: DEBUG
@@ -34,7 +34,7 @@ jobs:
             r-toku/sandbox-repo
         run: |
           ls -l .github/workflows/script/
-          # メインリポジトリと複数のサブリポジトリの PR ステータスを収集
+          # メインリポジトリとサブリポジトリの PR ステータスを収集し *_PR_status.md を生成
           for repo in "${GITHUB_REPOSITORY}" $SUB_REPOSITORY; do
             [ -z "$repo" ] && continue
             python .github/workflows/script/collect_pr_status.py wiki --repo "$repo"
