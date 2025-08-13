@@ -2,13 +2,14 @@
 """PR 情報を記載した Markdown を Wiki リポジトリへ反映するスクリプト
 
 1. GitHub Actions から渡されたトークンを使って push 可能なリモート URL を設定
-2. `PR_Status.md` の変更をステージングし、差分があればコミット・プッシュ
+2. `PR_Status*.md` の変更をステージングし、差分があればコミット・プッシュ
 3. 変更がない場合は何もせず終了する
 """
 import os
 import subprocess
 import sys
 import logging
+import glob
 
 # 環境変数 LOG_LEVEL を参照してログレベルを設定
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -37,12 +38,13 @@ def main(wiki_dir: str) -> None:
             f"https://x-access-token:{token}@github.com/{repo}.wiki.git",
         ])
 
-    if not os.path.exists("PR_Status.md"):
-        logger.error("PR_Status.md が見つかりません")
+    status_files = sorted(glob.glob("PR_Status*.md"))
+    if not status_files:
+        logger.error("PR_Status*.md が見つかりません")
         sys.exit(1)
 
     # 差分があればコミットしてプッシュする
-    run(["git", "add", "PR_Status.md"])
+    run(["git", "add", *status_files])
     diff = subprocess.run(["git", "diff", "--cached", "--quiet"])
     if diff.returncode != 0:
         actor = os.environ.get("GITHUB_ACTOR", "github-actions")
