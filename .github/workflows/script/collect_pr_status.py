@@ -417,8 +417,9 @@ def update_date(project_id: str, item_id: str, field_id: str, date: str) -> None
 
 def update_iteration(project_id: str, item_id: str, field_id: str, iteration_id: str) -> None:
     """Iteration フィールドを更新する"""
+    # GitHub のスキーマでは iterationId は String を受け付けるため $T は String!
     mutation = (
-        "mutation($P:ID!,$I:ID!,$F:ID!,$T:ID!){\n"
+        "mutation($P:ID!,$I:ID!,$F:ID!,$T:String!){\n"
         "  updateProjectV2ItemFieldValue(input:{projectId:$P,itemId:$I,fieldId:$F,value:{iterationId:$T}}){clientMutationId}\n"
         "}\n"
     )
