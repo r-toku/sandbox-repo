@@ -328,6 +328,15 @@ def get_project_field_catalog(project_id: str) -> Dict[str, Dict[str, Any]]:
                 meta["iterations"] = {i.get("title"): i.get("id") for i in iterations}
             catalog[name] = meta
         PROJECT_FIELD_CATALOG_CACHE[project_id] = catalog
+        try:
+            # フィールドカタログの概要をデバッグ出力（型のみ簡易表示）
+            summary = {k: {"type": v.get("type"),
+                           "options": list(v.get("options", {}).keys())[:5] if v.get("type") == "SINGLE_SELECT" else None,
+                           "iterations": list(v.get("iterations", {}).keys())[:5] if v.get("type") == "ITERATION" else None}
+                       for k, v in catalog.items()}
+            logger.debug(f"Project {project_id} field catalog summary={json.dumps(summary, ensure_ascii=False)}")
+        except Exception:
+            pass
     except Exception as e:
         logger.error(f"Project フィールド取得に失敗: {e}")
     return catalog
@@ -413,23 +422,42 @@ def sync_if_empty_same_project(pr_item: Dict[str, Any], issue_item: Dict[str, An
     want = ["Priority", "Target Date", "Sprint"]
     pr_map = extract_field_value_map(pr_item.get("fieldValues", []))
     issue_map = extract_field_value_map(issue_item.get("fieldValues", []))
+    try:
+        logger.debug(f"Sync fields: PR map={json.dumps(pr_map, ensure_ascii=False)}")
+        logger.debug(f"Sync fields: Issue map={json.dumps(issue_map, ensure_ascii=False)}")
+    except Exception:
+        pass
     for fname in want:
         pr_v = pr_map.get(fname)
         issue_v = issue_map.get(fname)
-        if (pr_v is None or pr_v == "") and issue_v:
+        is_empty = (pr_v is None or pr_v == "")
+        logger.debug(f"Field '{fname}': PR='{pr_v}' Issue='{issue_v}' is_empty={is_empty}")
+        if is_empty and issue_v:
             fmeta = field_catalog.get(fname)
             if not fmeta:
+                logger.debug(f"Field '{fname}': no field meta found in catalog; skip")
                 continue
             if fmeta["type"] == "SINGLE_SELECT":
                 opt_id = fmeta.get("options", {}).get(issue_v)
                 if opt_id:
                     update_single_select(pr_item["projectId"], pr_item["id"], fmeta["fieldId"], opt_id)
+                    logger.debug(f"Field '{fname}': set single-select value='{issue_v}' (opt_id={opt_id})")
+                else:
+                    logger.debug(f"Field '{fname}': option not found for value='{issue_v}'. available={list(fmeta.get('options', {}).keys())}")
             elif fmeta["type"] == "DATE":
                 update_date(pr_item["projectId"], pr_item["id"], fmeta["fieldId"], issue_v)
+                logger.debug(f"Field '{fname}': set date='{issue_v}'")
             elif fmeta["type"] == "ITERATION":
                 it_id = fmeta.get("iterations", {}).get(issue_v)
                 if it_id:
                     update_iteration(pr_item["projectId"], pr_item["id"], fmeta["fieldId"], it_id)
+                    logger.debug(f"Field '{fname}': set iteration title='{issue_v}' (iteration_id={it_id})")
+                else:
+                    logger.debug(f"Field '{fname}': iteration not found for title='{issue_v}'. available={list(fmeta.get('iterations', {}).keys())}")
+            else:
+                logger.debug(f"Field '{fname}': unsupported type='{fmeta.get('type')}'")
+        elif not is_empty:
+            logger.debug(f"Field '{fname}': PR already has value; skip copy")
 
 def get_assignee_user_ids_for_pr(pr_node_id: str) -> List[str]:
     """PR のアサイン済みユーザー ID を取得する"""
