@@ -289,9 +289,11 @@ def get_project_field_catalog(project_id: str) -> Dict[str, Dict[str, Any]]:
         "    ... on ProjectV2 {\n"
         "      fields(first: 100) {\n"
         "        nodes {\n"
+        "          __typename\n"
+        "          ... on ProjectV2SingleSelectField { id name options { id name } }\n"
+        "          ... on ProjectV2IterationField { id name configuration { iterations { id title startDate } } }\n"
+        "          ... on ProjectV2DateField { id name }\n"
         "          ... on ProjectV2Field { id name dataType }\n"
-        "          ... on ProjectV2SingleSelectField { options { id name } }\n"
-        "          ... on ProjectV2IterationField { configuration { iterations { id title startDate } } }\n"
         "        }\n"
         "      }\n"
         "    }\n"
@@ -316,16 +318,25 @@ def get_project_field_catalog(project_id: str) -> Dict[str, Dict[str, Any]]:
             name = n.get("name")
             if not name:
                 continue
+            typename = n.get("__typename")
             dtype = n.get("dataType")
-            meta: Dict[str, Any] = {"fieldId": n.get("id"), "type": dtype}
-            if dtype == "SINGLE_SELECT":
+            meta: Dict[str, Any] = {"fieldId": n.get("id"), "type": None}
+            if typename == "ProjectV2SingleSelectField":
+                meta["type"] = "SINGLE_SELECT"
                 meta["options"] = {o.get("name"): o.get("id") for o in n.get("options", [])}
-            elif dtype == "ITERATION":
+            elif typename == "ProjectV2IterationField":
+                meta["type"] = "ITERATION"
                 iterations = (
                     n.get("configuration", {})
                     .get("iterations", [])
                 )
                 meta["iterations"] = {i.get("title"): i.get("id") for i in iterations}
+            elif typename == "ProjectV2DateField":
+                meta["type"] = "DATE"
+            else:
+                # フォールバック: dataType が取れていれば利用
+                if dtype:
+                    meta["type"] = dtype
             catalog[name] = meta
         PROJECT_FIELD_CATALOG_CACHE[project_id] = catalog
         try:
