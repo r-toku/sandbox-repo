@@ -69,12 +69,13 @@ def format_reviewer_status(reviewer: str, state: str) -> str:
     }
     return f"{reviewer}{mapping.get(state, '')}"
 
-def run_gh(args: List[str]) -> str:
+def run_gh(args: List[str], input_text: Optional[str] = None) -> str:
     """gh コマンドを実行し結果を文字列で返す
 
+    `input_text` が指定された場合は標準入力として渡す。
     失敗時は標準出力・標準エラーの内容を表示して `CalledProcessError` を送出する。
     """
-    result = subprocess.run(args, capture_output=True, text=True)
+    result = subprocess.run(args, input=input_text, capture_output=True, text=True)
     if result.returncode != 0:
         # エラー出力があれば優先して表示し、なければ標準出力を表示する
         err_msg = (result.stderr or result.stdout).strip()
@@ -482,13 +483,16 @@ def add_assignees_to_assignable(assignable_id: str, user_ids: List[str]) -> None
         "mutation($A:ID!,$U:[ID!]!){ addAssigneesToAssignable(input:{assignableId:$A,assigneeIds:$U}){clientMutationId} }"
     )
     try:
-        run_gh([
-            "gh", "api", "graphql",
-            "-f", f"query={mutation}",
-            "-f", f"A={assignable_id}",
-            # assigneeIds には JSON 配列を文字列として渡す
-            "-f", f"U={json.dumps(user_ids)}",
-        ])
+        run_gh(
+            [
+                "gh", "api", "graphql",
+                "-f", f"query={mutation}",
+                "-f", f"A={assignable_id}",
+                # assigneeIds には JSON 配列を標準入力で渡す
+                "-f", "U=@-",
+            ],
+            input_text=json.dumps(user_ids),
+        )
     except Exception as e:
         logger.error(f"アサイン追加に失敗: {e}")
 
