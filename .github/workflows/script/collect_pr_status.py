@@ -17,7 +17,7 @@ import os
 import subprocess
 import logging
 import base64
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Optional
 
 # 環境変数 LOG_LEVEL を参照してログレベルを設定
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -69,12 +69,13 @@ def format_reviewer_status(reviewer: str, state: str) -> str:
     }
     return f"{reviewer}{mapping.get(state, '')}"
 
-def run_gh(args: List[str]) -> str:
+def run_gh(args: List[str], input_text: Optional[str] = None) -> str:
     """gh コマンドを実行し結果を文字列で返す
 
+    `input_text` が指定された場合は標準入力として渡す。
     失敗時は標準出力・標準エラーの内容を表示して `CalledProcessError` を送出する。
     """
-    result = subprocess.run(args, capture_output=True, text=True)
+    result = subprocess.run(args, input=input_text, capture_output=True, text=True)
     if result.returncode != 0:
         # エラー出力があれば優先して表示し、なければ標準出力を表示する
         err_msg = (result.stderr or result.stdout).strip()
@@ -120,6 +121,459 @@ def extract_fields(project_json: Dict[str, Any], fields: List[str]) -> Dict[str,
                 if m_title:
                     result[name] = m_title
     return result
+
+# Project フィールド定義のキャッシュ
+PROJECT_FIELD_CATALOG_CACHE: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+def get_first_development_issue_id(pr_node_id: str) -> Optional[str]:
+    """Development に紐づく最初の Issue の node ID を取得する"""
+    query = (
+        "query($PR_ID: ID!) {\n"
+        "  node(id: $PR_ID) {\n"
+        "    ... on PullRequest {\n"
+        "      closingIssuesReferences(first: 20) { nodes { id } }\n"
+        "      timelineItems(itemTypes: [CONNECTED_EVENT, CROSS_REFERENCED_EVENT], first: 20) {\n"
+        "        nodes {\n"
+        "          __typename\n"
+        "          ... on ConnectedEvent { subject { ... on Issue { id } } }\n"
+        "          ... on CrossReferencedEvent { source { ... on Issue { id } } }\n"
+        "        }\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    try:
+        res = run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={query}",
+            "-f", f"PR_ID={pr_node_id}",
+        ])
+        data = json.loads(res).get("data", {}).get("node", {})
+        refs = data.get("closingIssuesReferences", {}).get("nodes", [])
+        if refs:
+            return refs[0].get("id")
+        timeline = data.get("timelineItems", {}).get("nodes", [])
+        for t in timeline:
+            if t.get("__typename") == "ConnectedEvent":
+                subj = t.get("subject", {})
+                if subj.get("id") and subj.get("__typename") == "Issue":
+                    return subj.get("id")
+            if t.get("__typename") == "CrossReferencedEvent":
+                src = t.get("source", {})
+                if src.get("id") and src.get("__typename") == "Issue":
+                    return src.get("id")
+    except Exception as e:
+        logger.error(f"Development Issue 取得に失敗: {e}")
+    return None
+
+def get_project_item_map(node_id: str) -> Dict[str, Dict[str, Any]]:
+    """指定した node の ProjectV2Item を取得し project_id 毎にまとめる"""
+    # Project アイテムとフィールド値を取得する GraphQL クエリ
+    query = (
+        "query($ID: ID!) {\n"
+        "  node(id: $ID) {\n"
+        "    ... on Issue {\n"
+        "      projectItems(first: 20) {\n"
+        "        nodes {\n"
+        "          id\n"
+        "          project { id title }\n"
+        "          fieldValues(first: 50) {\n"
+        "            nodes {\n"
+        "              __typename\n"
+        "              ... on ProjectV2ItemFieldSingleSelectValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                name\n"
+        "                optionId\n"
+        "              }\n"
+        "              ... on ProjectV2ItemFieldTextValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                text\n"
+        "              }\n"
+        "              ... on ProjectV2ItemFieldDateValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                date\n"
+        "              }\n"
+        "              ... on ProjectV2ItemFieldIterationValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                title\n"
+        "                iterationId\n"
+        "                startDate\n"
+        "              }\n"
+        "              ... on ProjectV2ItemFieldNumberValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                number\n"
+        "              }\n"
+        "              ... on ProjectV2ItemFieldMilestoneValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                milestone { title }\n"
+        "              }\n"
+        "            }\n"
+        "          }\n"
+        "        }\n"
+        "      }\n"
+        "    }\n"
+        "    ... on PullRequest {\n"
+        "      projectItems(first: 20) {\n"
+        "        nodes {\n"
+        "          id\n"
+        "          project { id title }\n"
+        "          fieldValues(first: 50) {\n"
+        "            nodes {\n"
+        "              __typename\n"
+        "              ... on ProjectV2ItemFieldSingleSelectValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                name\n"
+        "                optionId\n"
+        "              }\n"
+        "              ... on ProjectV2ItemFieldTextValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                text\n"
+        "              }\n"
+        "              ... on ProjectV2ItemFieldDateValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                date\n"
+        "              }\n"
+        "              ... on ProjectV2ItemFieldIterationValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                title\n"
+        "                iterationId\n"
+        "                startDate\n"
+        "              }\n"
+        "              ... on ProjectV2ItemFieldNumberValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                number\n"
+        "              }\n"
+        "              ... on ProjectV2ItemFieldMilestoneValue {\n"
+        "                field { ... on ProjectV2FieldCommon { name } }\n"
+        "                milestone { title }\n"
+        "              }\n"
+        "            }\n"
+        "          }\n"
+        "        }\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    items: Dict[str, Dict[str, Any]] = {}
+    try:
+        res = run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={query}",
+            "-f", f"ID={node_id}",
+        ])
+        nodes = (
+            json.loads(res)
+            .get("data", {})
+            .get("node", {})
+            .get("projectItems", {})
+            .get("nodes", [])
+        )
+        for n in nodes:
+            proj = n.get("project", {})
+            pid = proj.get("id")
+            if not pid:
+                continue
+            items[pid] = {
+                "project": proj,
+                "item": {
+                    "id": n.get("id"),
+                    "projectId": pid,
+                    "fieldValues": n.get("fieldValues", {}).get("nodes", []),
+                },
+            }
+    except Exception as e:
+        logger.error(f"Project アイテム取得に失敗: {e}")
+    return items
+
+def get_project_field_catalog(project_id: str) -> Dict[str, Dict[str, Any]]:
+    """Project のフィールド定義を取得しキャッシュする"""
+    if project_id in PROJECT_FIELD_CATALOG_CACHE:
+        return PROJECT_FIELD_CATALOG_CACHE[project_id]
+    query = (
+        "query($PID: ID!) {\n"
+        "  node(id: $PID) {\n"
+        "    ... on ProjectV2 {\n"
+        "      fields(first: 100) {\n"
+        "        nodes {\n"
+        "          __typename\n"
+        "          ... on ProjectV2FieldCommon { id name dataType }\n"
+        "          ... on ProjectV2SingleSelectField { options { id name } }\n"
+        "          ... on ProjectV2IterationField { configuration { iterations { id title startDate } } }\n"
+        "        }\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    catalog: Dict[str, Dict[str, Any]] = {}
+    try:
+        res = run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={query}",
+            "-f", f"PID={project_id}",
+        ])
+        nodes = (
+            json.loads(res)
+            .get("data", {})
+            .get("node", {})
+            .get("fields", {})
+            .get("nodes", [])
+        )
+        for n in nodes:
+            name = n.get("name")
+            if not name:
+                continue
+            typename = n.get("__typename")
+            dtype = n.get("dataType")
+            meta: Dict[str, Any] = {"fieldId": n.get("id"), "type": None}
+            if typename == "ProjectV2SingleSelectField":
+                meta["type"] = "SINGLE_SELECT"
+                meta["options"] = {o.get("name"): o.get("id") for o in n.get("options", [])}
+            elif typename == "ProjectV2IterationField":
+                meta["type"] = "ITERATION"
+                iterations = (
+                    n.get("configuration", {})
+                    .get("iterations", [])
+                )
+                meta["iterations"] = {i.get("title"): i.get("id") for i in iterations}
+            else:
+                # フォールバック: dataType が取れていれば利用
+                if dtype:
+                    meta["type"] = dtype
+            catalog[name] = meta
+        PROJECT_FIELD_CATALOG_CACHE[project_id] = catalog
+        try:
+            # フィールドカタログの概要をデバッグ出力（型のみ簡易表示）
+            summary = {k: {"type": v.get("type"),
+                           "options": list(v.get("options", {}).keys())[:5] if v.get("type") == "SINGLE_SELECT" else None,
+                           "iterations": list(v.get("iterations", {}).keys())[:5] if v.get("type") == "ITERATION" else None}
+                       for k, v in catalog.items()}
+            logger.debug(f"Project {project_id} field catalog summary={json.dumps(summary, ensure_ascii=False)}")
+        except Exception:
+            pass
+    except Exception as e:
+        logger.error(f"Project フィールド取得に失敗: {e}")
+    return catalog
+
+def extract_field_value_map(field_values_nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """fieldValues ノードから {フィールド名: 値} マップを生成する"""
+    result: Dict[str, Any] = {}
+    for fv in field_values_nodes:
+        field = fv.get("field", {})
+        name = field.get("name")
+        if not name:
+            continue
+        value = (
+            fv.get("name")
+            or fv.get("date")
+            or fv.get("title")
+            or fv.get("text")
+            or fv.get("number")
+        )
+        if value is not None:
+            result[name] = value
+    return result
+
+def update_single_select(project_id: str, item_id: str, field_id: str, option_id: str) -> None:
+    """Single-select フィールドを更新する"""
+    # GitHub のスキーマでは singleSelectOptionId は String を受け付けるため $O は String!
+    mutation = (
+        "mutation($P:ID!,$I:ID!,$F:ID!,$O:String!){\n"
+        "  updateProjectV2ItemFieldValue(input:{projectId:$P,itemId:$I,fieldId:$F,value:{singleSelectOptionId:$O}}){clientMutationId}\n"
+        "}\n"
+    )
+    try:
+        run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={mutation}",
+            "-f", f"P={project_id}",
+            "-f", f"I={item_id}",
+            "-f", f"F={field_id}",
+            "-f", f"O={option_id}",
+        ])
+    except Exception as e:
+        logger.error(f"Single-select 更新に失敗: {e}")
+
+def update_date(project_id: str, item_id: str, field_id: str, date: str) -> None:
+    """Date フィールドを更新する"""
+    mutation = (
+        "mutation($P:ID!,$I:ID!,$F:ID!,$D:Date!){\n"
+        "  updateProjectV2ItemFieldValue(input:{projectId:$P,itemId:$I,fieldId:$F,value:{date:$D}}){clientMutationId}\n"
+        "}\n"
+    )
+    try:
+        run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={mutation}",
+            "-f", f"P={project_id}",
+            "-f", f"I={item_id}",
+            "-f", f"F={field_id}",
+            "-f", f"D={date}",
+        ])
+    except Exception as e:
+        logger.error(f"Date 更新に失敗: {e}")
+
+def update_iteration(project_id: str, item_id: str, field_id: str, iteration_id: str) -> None:
+    """Iteration フィールドを更新する"""
+    # GitHub のスキーマでは iterationId は String を受け付けるため $T は String!
+    mutation = (
+        "mutation($P:ID!,$I:ID!,$F:ID!,$T:String!){\n"
+        "  updateProjectV2ItemFieldValue(input:{projectId:$P,itemId:$I,fieldId:$F,value:{iterationId:$T}}){clientMutationId}\n"
+        "}\n"
+    )
+    try:
+        run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={mutation}",
+            "-f", f"P={project_id}",
+            "-f", f"I={item_id}",
+            "-f", f"F={field_id}",
+            "-f", f"T={iteration_id}",
+        ])
+    except Exception as e:
+        logger.error(f"Iteration 更新に失敗: {e}")
+
+def sync_if_empty_same_project(pr_item: Dict[str, Any], issue_item: Dict[str, Any], field_catalog: Dict[str, Dict[str, Any]]) -> None:
+    """PR 側が空欄の場合に Issue 側の値をコピーする"""
+    # ステータスも同期対象に追加（未設定/No Status の場合）
+    want = ["Status", "Priority", "Target Date", "Sprint"]
+    pr_map = extract_field_value_map(pr_item.get("fieldValues", []))
+    issue_map = extract_field_value_map(issue_item.get("fieldValues", []))
+    try:
+        logger.debug(f"Sync fields: PR map={json.dumps(pr_map, ensure_ascii=False)}")
+        logger.debug(f"Sync fields: Issue map={json.dumps(issue_map, ensure_ascii=False)}")
+    except Exception:
+        pass
+    for fname in want:
+        pr_v = pr_map.get(fname)
+        issue_v = issue_map.get(fname)
+        # 未設定の代表値も空扱いにする（No Status/None/-/未設定）
+        is_empty = (
+            pr_v is None or pr_v == "" or (
+                isinstance(pr_v, str) and pr_v.strip().lower() in {"no status", "none", "-", "未設定"}
+            )
+        )
+        logger.debug(f"Field '{fname}': PR='{pr_v}' Issue='{issue_v}' is_empty={is_empty}")
+        if is_empty and issue_v:
+            fmeta = field_catalog.get(fname)
+            if not fmeta:
+                logger.debug(f"Field '{fname}': no field meta found in catalog; skip")
+                continue
+            if fmeta["type"] == "SINGLE_SELECT":
+                options = fmeta.get("options", {})
+                opt_id = options.get(issue_v)
+                if not opt_id and isinstance(issue_v, str):
+                    # 大文字小文字の違いや余白の差異を吸収するフォールバック
+                    iv = issue_v.strip().lower()
+                    for oname, oid in options.items():
+                        if isinstance(oname, str) and oname.strip().lower() == iv:
+                            opt_id = oid
+                            break
+                if opt_id:
+                    update_single_select(pr_item["projectId"], pr_item["id"], fmeta["fieldId"], opt_id)
+                    logger.debug(f"Field '{fname}': set single-select value='{issue_v}' (opt_id={opt_id})")
+                else:
+                    logger.debug(f"Field '{fname}': option not found for value='{issue_v}'. available={list(fmeta.get('options', {}).keys())}")
+            elif fmeta["type"] == "DATE":
+                update_date(pr_item["projectId"], pr_item["id"], fmeta["fieldId"], issue_v)
+                logger.debug(f"Field '{fname}': set date='{issue_v}'")
+            elif fmeta["type"] == "ITERATION":
+                # 1) 通常ルート: カタログの title -> iterationId 解決
+                it_id = fmeta.get("iterations", {}).get(issue_v)
+                # 2) フォールバック: Issue 側のフィールド値から iterationId を直接参照
+                if not it_id:
+                    for fv in issue_item.get("fieldValues", []):
+                        if fv.get("__typename") == "ProjectV2ItemFieldIterationValue" and fv.get("field", {}).get("name") == fname:
+                            it_id = fv.get("iterationId")
+                            if it_id:
+                                logger.debug(f"Field '{fname}': fallback iterationId from issue value title='{issue_v}' -> id='{it_id}'")
+                            break
+                if it_id:
+                    update_iteration(pr_item["projectId"], pr_item["id"], fmeta["fieldId"], it_id)
+                    logger.debug(f"Field '{fname}': set iteration title='{issue_v}' (iteration_id={it_id})")
+                else:
+                    logger.debug(f"Field '{fname}': iteration not found for title='{issue_v}'. available={list(fmeta.get('iterations', {}).keys())}")
+            else:
+                logger.debug(f"Field '{fname}': unsupported type='{fmeta.get('type')}'")
+        elif not is_empty:
+            logger.debug(f"Field '{fname}': PR already has value; skip copy")
+
+def get_assignee_user_ids_for_pr(pr_node_id: str) -> List[str]:
+    """PR のアサイン済みユーザー ID を取得する"""
+    query = (
+        "query($ID:ID!){ node(id:$ID){ ... on PullRequest { assignees(first:100){ nodes { id } } } } }"
+    )
+    try:
+        res = run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={query}",
+            "-f", f"ID={pr_node_id}",
+        ])
+        nodes = (
+            json.loads(res)
+            .get("data", {})
+            .get("node", {})
+            .get("assignees", {})
+            .get("nodes", [])
+        )
+        return [n.get("id") for n in nodes if n.get("id")]
+    except Exception as e:
+        logger.error(f"PR アサイン取得に失敗: {e}")
+        return []
+
+def get_assignee_user_ids_for_issue(issue_node_id: str) -> List[str]:
+    """Issue のアサイン済みユーザー ID を取得する"""
+    query = (
+        "query($ID:ID!){ node(id:$ID){ ... on Issue { assignees(first:100){ nodes { id } } } } }"
+    )
+    try:
+        res = run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={query}",
+            "-f", f"ID={issue_node_id}",
+        ])
+        nodes = (
+            json.loads(res)
+            .get("data", {})
+            .get("node", {})
+            .get("assignees", {})
+            .get("nodes", [])
+        )
+        return [n.get("id") for n in nodes if n.get("id")]
+    except Exception as e:
+        logger.error(f"Issue アサイン取得に失敗: {e}")
+        return []
+
+def add_assignees_to_assignable(assignable_id: str, user_ids: List[str]) -> None:
+    """指定した assignable にユーザーをアサインする"""
+    # ユーザー ID が空の場合は何もしない
+    if not user_ids:
+        return
+    # gh api graphql の変数解釈差異を避けるため、値をクエリに直接埋め込む
+    assignee_ids_literal = json.dumps(user_ids)
+    mutation = (
+        "mutation{ addAssigneesToAssignable("
+        f"input:{{assignableId:\"{assignable_id}\",assigneeIds:{assignee_ids_literal}}}"
+        "){clientMutationId} }"
+    )
+    try:
+        run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={mutation}",
+        ])
+    except Exception as e:
+        logger.error(f"アサイン追加に失敗: {e}")
+
+def sync_pr_assignees_if_empty_from_issue(pr_node_id: str, issue_node_id: str) -> None:
+    """PR にアサインが無い場合 Issue のアサインをコピーする"""
+    pr_assignees = get_assignee_user_ids_for_pr(pr_node_id)
+    if pr_assignees:
+        return
+    issue_assignees = get_assignee_user_ids_for_issue(issue_node_id)
+    if issue_assignees:
+        add_assignees_to_assignable(pr_node_id, issue_assignees)
 
 def main(output_dir: str, repo: str = "") -> None:
     os.makedirs(output_dir, exist_ok=True)
@@ -333,6 +787,22 @@ def main(output_dir: str, repo: str = "") -> None:
         row = "| " + " | ".join(row_fields) + " |\n"
         with open(output_file, "a", encoding="utf-8") as f:
             f.write(row)
+
+        # PR 情報収集後に Issue との同期処理を実行
+        try:
+            issue_id = get_first_development_issue_id(pr_node_id)
+            if issue_id:
+                pr_items = get_project_item_map(pr_node_id)
+                issue_items = get_project_item_map(issue_id)
+                for pid, pr_item in pr_items.items():
+                    issue_item = issue_items.get(pid)
+                    if not issue_item:
+                        continue
+                    catalog = get_project_field_catalog(pid)
+                    sync_if_empty_same_project(pr_item["item"], issue_item["item"], catalog)
+                sync_pr_assignees_if_empty_from_issue(pr_node_id, issue_id)
+        except Exception as e:
+            logger.error(f"同期処理に失敗: {e}")
 
     logger.info(f"PR 情報を {output_file} に出力しました")
 
