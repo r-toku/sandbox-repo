@@ -437,7 +437,8 @@ def update_iteration(project_id: str, item_id: str, field_id: str, iteration_id:
 
 def sync_if_empty_same_project(pr_item: Dict[str, Any], issue_item: Dict[str, Any], field_catalog: Dict[str, Dict[str, Any]]) -> None:
     """PR 側が空欄の場合に Issue 側の値をコピーする"""
-    want = ["Priority", "Target Date", "Sprint"]
+    # ステータスも同期対象に追加（未設定/No Status の場合）
+    want = ["Status", "Priority", "Target Date", "Sprint"]
     pr_map = extract_field_value_map(pr_item.get("fieldValues", []))
     issue_map = extract_field_value_map(issue_item.get("fieldValues", []))
     try:
@@ -448,7 +449,12 @@ def sync_if_empty_same_project(pr_item: Dict[str, Any], issue_item: Dict[str, An
     for fname in want:
         pr_v = pr_map.get(fname)
         issue_v = issue_map.get(fname)
-        is_empty = (pr_v is None or pr_v == "")
+        # 未設定の代表値も空扱いにする（No Status/None/-/未設定）
+        is_empty = (
+            pr_v is None or pr_v == "" or (
+                isinstance(pr_v, str) and pr_v.strip().lower() in {"no status", "none", "-", "未設定"}
+            )
+        )
         logger.debug(f"Field '{fname}': PR='{pr_v}' Issue='{issue_v}' is_empty={is_empty}")
         if is_empty and issue_v:
             fmeta = field_catalog.get(fname)
@@ -456,7 +462,15 @@ def sync_if_empty_same_project(pr_item: Dict[str, Any], issue_item: Dict[str, An
                 logger.debug(f"Field '{fname}': no field meta found in catalog; skip")
                 continue
             if fmeta["type"] == "SINGLE_SELECT":
-                opt_id = fmeta.get("options", {}).get(issue_v)
+                options = fmeta.get("options", {})
+                opt_id = options.get(issue_v)
+                if not opt_id and isinstance(issue_v, str):
+                    # 大文字小文字の違いや余白の差異を吸収するフォールバック
+                    iv = issue_v.strip().lower()
+                    for oname, oid in options.items():
+                        if isinstance(oname, str) and oname.strip().lower() == iv:
+                            opt_id = oid
+                            break
                 if opt_id:
                     update_single_select(pr_item["projectId"], pr_item["id"], fmeta["fieldId"], opt_id)
                     logger.debug(f"Field '{fname}': set single-select value='{issue_v}' (opt_id={opt_id})")
