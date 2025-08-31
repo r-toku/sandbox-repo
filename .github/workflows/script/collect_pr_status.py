@@ -290,10 +290,9 @@ def get_project_field_catalog(project_id: str) -> Dict[str, Dict[str, Any]]:
         "      fields(first: 100) {\n"
         "        nodes {\n"
         "          __typename\n"
-        "          ... on ProjectV2SingleSelectField { id name options { id name } }\n"
-        "          ... on ProjectV2IterationField { id name configuration { iterations { id title startDate } } }\n"
-        "          ... on ProjectV2DateField { id name }\n"
-        "          ... on ProjectV2Field { id name dataType }\n"
+        "          ... on ProjectV2FieldCommon { id name dataType }\n"
+        "          ... on ProjectV2SingleSelectField { options { id name } }\n"
+        "          ... on ProjectV2IterationField { configuration { iterations { id title startDate } } }\n"
         "        }\n"
         "      }\n"
         "    }\n"
@@ -331,8 +330,6 @@ def get_project_field_catalog(project_id: str) -> Dict[str, Dict[str, Any]]:
                     .get("iterations", [])
                 )
                 meta["iterations"] = {i.get("title"): i.get("id") for i in iterations}
-            elif typename == "ProjectV2DateField":
-                meta["type"] = "DATE"
             else:
                 # フォールバック: dataType が取れていれば利用
                 if dtype:
