@@ -4,6 +4,7 @@
 - `collect_pr_status.py` と `update_wiki.py` を実行する GitHub Actions ワークフロー。
 - 環境変数 `LOGIN_USERS_B64` にレビュワーと所属組織の対応表を Base64 文字列として設定する。
 - 環境変数 `LOG_LEVEL` を指定してスクリプトのログレベルを制御する。
+- `GH_TOKEN` には `GH_PROJECT_PAT` を渡し、収集と同期を同一トークンで実行する。
 
 ## collect_pr_status.py
 - GitHub CLI (`gh`) を利用してオープン中の PR 情報と Projects (v2) のフィールド値を取得する。
@@ -15,6 +16,9 @@
 - レビュワーごとの最新ステータスを集計し、再依頼されたレビューは「保留」に戻す。
 - `--repo` 引数で対象リポジトリを指定し、リポジトリごとに `<owner>_<repo>_PR_status.md` を出力する。
 - 出力する列: PR, Title, 状態, Reviewers, Assignees, Status, Priority, Target Date, Sprint。
+- PR と Development の最初の Issue を照合し、同一 Project 内で PR 側フィールドが空欄なら Issue の値をコピーする（Priority/Target Date/Sprint）。既存値の上書きはしない。
+- PR の Assignees が未設定で Issue に設定がある場合、PR に同じユーザーを追加する。
+- PR が Project に未参加の場合やフィールドやオプションが見つからない場合は何もしない。
 - 事前に `gh` コマンドが利用可能であること。
 
 ## update_wiki.py
