@@ -103,9 +103,13 @@ def extract_fields(project_json: Dict[str, Any], fields: List[str]) -> Dict[str,
 
 def main(output_dir: str) -> None:
     os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(output_dir, "PR_Status.md")
+    repo_name = os.environ.get("REPOSITORY_NAME")
+    if not repo_name:
+        repo_name = os.environ.get("GITHUB_REPOSITORY", "").split("/")[-1] or "repository"
+    # リポジトリ名を用いたファイル名を生成する
+    output_file = os.path.join(output_dir, f"{repo_name}_PR_status.md")
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write("# Pull Request Status\n\n")
+        f.write(f"# {repo_name} PR Status\n\n")
         f.write(f"Updated: {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n\n")
         f.write(
             "| PR | Title | 状態 | Reviewers | Assignees | Status | Sub-issues progress | Priority | Size | Estimate | Start date | End date | Sprint |\n"
