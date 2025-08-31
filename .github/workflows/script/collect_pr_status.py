@@ -482,18 +482,17 @@ def add_assignees_to_assignable(assignable_id: str, user_ids: List[str]) -> None
     # ユーザー ID が空の場合は何もしない
     if not user_ids:
         return
+    # gh api graphql の変数解釈差異を避けるため、値をクエリに直接埋め込む
+    assignee_ids_literal = json.dumps(user_ids)
     mutation = (
-        "mutation($A:ID!,$U:[ID!]!){ "
-        "addAssigneesToAssignable(input:{assignableId:$A,assigneeIds:$U}){clientMutationId} "
-        "}"
+        "mutation{ addAssigneesToAssignable("
+        f"input:{{assignableId:\"{assignable_id}\",assigneeIds:{assignee_ids_literal}}}"
+        "){clientMutationId} }"
     )
     try:
-        # GraphQL の配列変数は --raw-field で JSON 配列をそのまま渡す
         run_gh([
             "gh", "api", "graphql",
             "-f", f"query={mutation}",
-            "-f", f"A={assignable_id}",
-            "--raw-field", f"U={json.dumps(user_ids)}",
         ])
     except Exception as e:
         logger.error(f"アサイン追加に失敗: {e}")
