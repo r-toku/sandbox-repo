@@ -483,16 +483,13 @@ def add_assignees_to_assignable(assignable_id: str, user_ids: List[str]) -> None
         "mutation($A:ID!,$U:[ID!]!){ addAssigneesToAssignable(input:{assignableId:$A,assigneeIds:$U}){clientMutationId} }"
     )
     try:
-        run_gh(
-            [
-                "gh", "api", "graphql",
-                "-f", f"query={mutation}",
-                "-f", f"A={assignable_id}",
-                # assigneeIds には JSON 配列を標準入力で渡す
-                "-f", "U=@-",
-            ],
-            input_text=json.dumps(user_ids),
-        )
+        run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={mutation}",
+            "-f", f"A={assignable_id}",
+            # assigneeIds には JSON 配列をそのまま渡す
+            "-f", f"U={json.dumps(user_ids)}",
+        ])
     except Exception as e:
         logger.error(f"アサイン追加に失敗: {e}")
 
