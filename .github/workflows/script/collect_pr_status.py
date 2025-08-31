@@ -183,6 +183,7 @@ def get_project_item_map(node_id: str) -> Dict[str, Dict[str, Any]]:
         "              ... on ProjectV2ItemFieldSingleSelectValue {\n"
         "                field { ... on ProjectV2FieldCommon { name } }\n"
         "                name\n"
+        "                optionId\n"
         "              }\n"
         "              ... on ProjectV2ItemFieldTextValue {\n"
         "                field { ... on ProjectV2FieldCommon { name } }\n"
@@ -195,6 +196,8 @@ def get_project_item_map(node_id: str) -> Dict[str, Dict[str, Any]]:
         "              ... on ProjectV2ItemFieldIterationValue {\n"
         "                field { ... on ProjectV2FieldCommon { name } }\n"
         "                title\n"
+        "                iterationId\n"
+        "                startDate\n"
         "              }\n"
         "              ... on ProjectV2ItemFieldNumberValue {\n"
         "                field { ... on ProjectV2FieldCommon { name } }\n"
@@ -219,6 +222,7 @@ def get_project_item_map(node_id: str) -> Dict[str, Dict[str, Any]]:
         "              ... on ProjectV2ItemFieldSingleSelectValue {\n"
         "                field { ... on ProjectV2FieldCommon { name } }\n"
         "                name\n"
+        "                optionId\n"
         "              }\n"
         "              ... on ProjectV2ItemFieldTextValue {\n"
         "                field { ... on ProjectV2FieldCommon { name } }\n"
@@ -231,6 +235,8 @@ def get_project_item_map(node_id: str) -> Dict[str, Dict[str, Any]]:
         "              ... on ProjectV2ItemFieldIterationValue {\n"
         "                field { ... on ProjectV2FieldCommon { name } }\n"
         "                title\n"
+        "                iterationId\n"
+        "                startDate\n"
         "              }\n"
         "              ... on ProjectV2ItemFieldNumberValue {\n"
         "                field { ... on ProjectV2FieldCommon { name } }\n"
@@ -457,7 +463,16 @@ def sync_if_empty_same_project(pr_item: Dict[str, Any], issue_item: Dict[str, An
                 update_date(pr_item["projectId"], pr_item["id"], fmeta["fieldId"], issue_v)
                 logger.debug(f"Field '{fname}': set date='{issue_v}'")
             elif fmeta["type"] == "ITERATION":
+                # 1) 通常ルート: カタログの title -> iterationId 解決
                 it_id = fmeta.get("iterations", {}).get(issue_v)
+                # 2) フォールバック: Issue 側のフィールド値から iterationId を直接参照
+                if not it_id:
+                    for fv in issue_item.get("fieldValues", []):
+                        if fv.get("__typename") == "ProjectV2ItemFieldIterationValue" and fv.get("field", {}).get("name") == fname:
+                            it_id = fv.get("iterationId")
+                            if it_id:
+                                logger.debug(f"Field '{fname}': fallback iterationId from issue value title='{issue_v}' -> id='{it_id}'")
+                            break
                 if it_id:
                     update_iteration(pr_item["projectId"], pr_item["id"], fmeta["fieldId"], it_id)
                     logger.debug(f"Field '{fname}': set iteration title='{issue_v}' (iteration_id={it_id})")
