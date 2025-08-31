@@ -486,7 +486,8 @@ def add_assignees_to_assignable(assignable_id: str, user_ids: List[str]) -> None
             "gh", "api", "graphql",
             "-f", f"query={mutation}",
             "-f", f"A={assignable_id}",
-            "-F", f"U={json.dumps(user_ids)}",
+            # assigneeIds には JSON 配列を文字列として渡す
+            "-f", f"U={json.dumps(user_ids)}",
         ])
     except Exception as e:
         logger.error(f"アサイン追加に失敗: {e}")
