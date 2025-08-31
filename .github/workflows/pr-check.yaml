@@ -11,6 +11,8 @@ on:
 jobs:
   pr-check:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GH_PROJECT_PAT }}
     permissions:
       contents: write
       pull-requests: read
@@ -26,7 +28,6 @@ jobs:
       - name: pr-check
         # CLI で取得した PR 情報を <リポジトリ名>_PR_status.md として Markdown にまとめる
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
           LOG_LEVEL: DEBUG
           LOGIN_USERS_B64: ${{ vars.LOGIN_USERS_B64 }}
           # スペースや改行で区切って複数指定可能なサブリポジトリ一覧

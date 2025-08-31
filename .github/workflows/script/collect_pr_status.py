@@ -17,7 +17,7 @@ import os
 import subprocess
 import logging
 import base64
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Optional
 
 # 環境変数 LOG_LEVEL を参照してログレベルを設定
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -120,6 +120,337 @@ def extract_fields(project_json: Dict[str, Any], fields: List[str]) -> Dict[str,
                 if m_title:
                     result[name] = m_title
     return result
+
+# プロジェクトフィールド定義のキャッシュ
+PROJECT_FIELD_CACHE: Dict[str, Dict] = {}
+
+def get_first_development_issue_id(pr_node_id: str) -> Optional[str]:
+    """Development セクションで最初に紐付く Issue の node ID を取得する
+
+    優先順位は closingIssuesReferences の先頭、なければタイムラインの
+    CONNECTED_EVENT/CROSS_REFERENCED_EVENT を走査して最初の Issue を返す
+    """
+    query = (
+        "query($PR:ID!){\n"
+        "  node(id:$PR){\n"
+        "    ... on PullRequest{\n"
+        "      closingIssuesReferences(first:10){nodes{id}}\n"
+        "      timelineItems(first:20,itemTypes:[CONNECTED_EVENT,CROSS_REFERENCED_EVENT]){\n"
+        "        nodes{\n"
+        "          __typename\n"
+        "          ... on ConnectedEvent{subject{__typename ... on Issue{id}}}\n"
+        "          ... on CrossReferencedEvent{source{__typename ... on Issue{id}}}\n"
+        "        }\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    try:
+        out = run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={query}",
+            "-f", f"PR={pr_node_id}",
+        ])
+        data = json.loads(out).get("data", {}).get("node", {})
+        closing = data.get("closingIssuesReferences", {}).get("nodes", [])
+        if closing:
+            return closing[0].get("id")
+        timeline = data.get("timelineItems", {}).get("nodes", [])
+        for t in timeline:
+            if t.get("__typename") == "ConnectedEvent":
+                sub = t.get("subject", {})
+                if sub.get("__typename") == "Issue":
+                    return sub.get("id")
+            elif t.get("__typename") == "CrossReferencedEvent":
+                src = t.get("source", {})
+                if src.get("__typename") == "Issue":
+                    return src.get("id")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"get_first_development_issue_id failed: {e.stderr}")
+    except json.JSONDecodeError as e:
+        logger.error(f"get_first_development_issue_id parse failed: {e}")
+    return None
+
+def get_project_item_map(node_id: str) -> Dict[str, Dict]:
+    """指定ノードの projectItems を取得しプロジェクトごとにマッピングする"""
+    query = (
+        "query($ID:ID!){\n"
+        "  node(id:$ID){\n"
+        "    ... on Node{\n"
+        "      ... on Issue{projectItems(first:20){nodes{id project{ id title } fieldValues(first:20){nodes{__typename field{... on ProjectV2FieldCommon{id name dataType}} name title text date number}}}}}\n"
+        "      ... on PullRequest{projectItems(first:20){nodes{id project{ id title } fieldValues(first:20){nodes{__typename field{... on ProjectV2FieldCommon{id name dataType}} name title text date number}}}}}\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    result: Dict[str, Dict] = {}
+    try:
+        out = run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={query}",
+            "-f", f"ID={node_id}",
+        ])
+        nodes = (
+            json.loads(out)
+            .get("data", {})
+            .get("node", {})
+            .get("projectItems", {})
+            .get("nodes", [])
+        )
+        for n in nodes:
+            project = n.get("project", {})
+            pid = project.get("id")
+            if not pid:
+                continue
+            result[pid] = {
+                "project": project,
+                "item": {
+                    "id": n.get("id"),
+                    "projectId": pid,
+                    "fieldValues": n.get("fieldValues", {}).get("nodes", []),
+                },
+            }
+    except subprocess.CalledProcessError as e:
+        logger.error(f"get_project_item_map failed: {e.stderr}")
+    except json.JSONDecodeError as e:
+        logger.error(f"get_project_item_map parse failed: {e}")
+    return result
+
+def get_project_field_catalog(project_id: str) -> Dict[str, Dict]:
+    """Project のフィールド定義を取得しキャッシュする"""
+    if project_id in PROJECT_FIELD_CACHE:
+        return PROJECT_FIELD_CACHE[project_id]
+    query = (
+        "query($ID:ID!){\n"
+        "  node(id:$ID){\n"
+        "    ... on ProjectV2{\n"
+        "      fields(first:100){nodes{ id name dataType\n"
+        "        ... on ProjectV2SingleSelectField{options{ id name }}\n"
+        "        ... on ProjectV2IterationField{configuration{iterations{id title startDate}}}\n"
+        "      }}\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+    )
+    catalog: Dict[str, Dict] = {}
+    try:
+        out = run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={query}",
+            "-f", f"ID={project_id}",
+        ])
+        fields = (
+            json.loads(out)
+            .get("data", {})
+            .get("node", {})
+            .get("fields", {})
+            .get("nodes", [])
+        )
+        for f in fields:
+            info: Dict[str, Any] = {
+                "fieldId": f.get("id"),
+                "type": f.get("dataType"),
+            }
+            if f.get("dataType") == "SINGLE_SELECT":
+                opts = {o.get("name"): o.get("id") for o in f.get("options", [])}
+                info["options"] = opts
+            if f.get("dataType") == "ITERATION":
+                it = {
+                    i.get("title"): i.get("id")
+                    for i in f.get("configuration", {})
+                    .get("iterations", [])
+                }
+                info["iterations"] = it
+            catalog[f.get("name")] = info
+    except subprocess.CalledProcessError as e:
+        logger.error(f"get_project_field_catalog failed: {e.stderr}")
+    except json.JSONDecodeError as e:
+        logger.error(f"get_project_field_catalog parse failed: {e}")
+    PROJECT_FIELD_CACHE[project_id] = catalog
+    return catalog
+
+def extract_field_value_map(field_values_nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """fieldValues のノード配列から {name: value} マップを生成する"""
+    result: Dict[str, Any] = {}
+    for fv in field_values_nodes or []:
+        field = fv.get("field", {})
+        name = field.get("name")
+        if not name:
+            continue
+        value = (
+            fv.get("name")
+            or fv.get("date")
+            or fv.get("title")
+            or fv.get("text")
+            or fv.get("number")
+        )
+        if value is not None:
+            result[name] = value
+    return result
+
+def update_single_select(project_id: str, item_id: str, field_id: str, option_id: str) -> None:
+    """Single-select フィールドを更新する"""
+    mutation = (
+        "mutation($P:ID!,$I:ID!,$F:ID!,$O:ID!){\n"
+        "  updateProjectV2ItemFieldValue(input:{projectId:$P,itemId:$I,fieldId:$F,value:{singleSelectOptionId:$O}}){clientMutationId}\n"
+        "}\n"
+    )
+    try:
+        run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={mutation}",
+            "-f", f"P={project_id}",
+            "-f", f"I={item_id}",
+            "-f", f"F={field_id}",
+            "-f", f"O={option_id}",
+        ])
+    except subprocess.CalledProcessError as e:
+        logger.error(f"update_single_select failed: {e.stderr}")
+
+def update_date(project_id: str, item_id: str, field_id: str, date: str) -> None:
+    """Date フィールドを更新する"""
+    mutation = (
+        "mutation($P:ID!,$I:ID!,$F:ID!,$D:Date!){\n"
+        "  updateProjectV2ItemFieldValue(input:{projectId:$P,itemId:$I,fieldId:$F,value:{date:$D}}){clientMutationId}\n"
+        "}\n"
+    )
+    try:
+        run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={mutation}",
+            "-f", f"P={project_id}",
+            "-f", f"I={item_id}",
+            "-f", f"F={field_id}",
+            "-f", f"D={date}",
+        ])
+    except subprocess.CalledProcessError as e:
+        logger.error(f"update_date failed: {e.stderr}")
+
+def update_iteration(project_id: str, item_id: str, field_id: str, iteration_id: str) -> None:
+    """Iteration フィールドを更新する"""
+    mutation = (
+        "mutation($P:ID!,$I:ID!,$F:ID!,$It:ID!){\n"
+        "  updateProjectV2ItemFieldValue(input:{projectId:$P,itemId:$I,fieldId:$F,value:{iterationId:$It}}){clientMutationId}\n"
+        "}\n"
+    )
+    try:
+        run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={mutation}",
+            "-f", f"P={project_id}",
+            "-f", f"I={item_id}",
+            "-f", f"F={field_id}",
+            "-f", f"It={iteration_id}",
+        ])
+    except subprocess.CalledProcessError as e:
+        logger.error(f"update_iteration failed: {e.stderr}")
+
+def sync_if_empty_same_project(pr_item: Dict[str, Any], issue_item: Dict[str, Any], field_catalog: Dict[str, Dict]) -> None:
+    """PR アイテムの空欄フィールドを Issue から補完する"""
+    want = ["Priority", "Target Date", "Sprint"]
+    pr_map = extract_field_value_map(pr_item.get("fieldValues", []))
+    issue_map = extract_field_value_map(issue_item.get("fieldValues", []))
+    for fname in want:
+        pr_v = pr_map.get(fname)
+        issue_v = issue_map.get(fname)
+        if (pr_v is None or pr_v == "") and issue_v:
+            fmeta = field_catalog.get(fname)
+            if not fmeta:
+                continue
+            if fmeta.get("type") == "SINGLE_SELECT":
+                opt_id = fmeta.get("options", {}).get(issue_v)
+                if opt_id:
+                    update_single_select(
+                        project_id=pr_item["projectId"],
+                        item_id=pr_item["id"],
+                        field_id=fmeta["fieldId"],
+                        option_id=opt_id,
+                    )
+            elif fmeta.get("type") == "DATE":
+                update_date(
+                    project_id=pr_item["projectId"],
+                    item_id=pr_item["id"],
+                    field_id=fmeta["fieldId"],
+                    date=str(issue_v),
+                )
+            elif fmeta.get("type") == "ITERATION":
+                it_id = fmeta.get("iterations", {}).get(issue_v)
+                if it_id:
+                    update_iteration(
+                        project_id=pr_item["projectId"],
+                        item_id=pr_item["id"],
+                        field_id=fmeta["fieldId"],
+                        iteration_id=it_id,
+                    )
+
+def get_assignee_user_ids_for_pr(node_id: str) -> List[str]:
+    """PR のアサインユーザー ID を取得する"""
+    query = (
+        "query($ID:ID!){node(id:$ID){... on PullRequest{assignees(first:10){nodes{id}}}}}"
+    )
+    try:
+        out = run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={query}",
+            "-f", f"ID={node_id}",
+        ])
+        return [n.get("id") for n in json.loads(out)
+                .get("data", {}).get("node", {})
+                .get("assignees", {}).get("nodes", []) if n.get("id")]
+    except subprocess.CalledProcessError as e:
+        logger.error(f"get_assignee_user_ids_for_pr failed: {e.stderr}")
+    except json.JSONDecodeError as e:
+        logger.error(f"get_assignee_user_ids_for_pr parse failed: {e}")
+    return []
+
+def get_assignee_user_ids_for_issue(node_id: str) -> List[str]:
+    """Issue のアサインユーザー ID を取得する"""
+    query = (
+        "query($ID:ID!){node(id:$ID){... on Issue{assignees(first:10){nodes{id}}}}}"
+    )
+    try:
+        out = run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={query}",
+            "-f", f"ID={node_id}",
+        ])
+        return [n.get("id") for n in json.loads(out)
+                .get("data", {}).get("node", {})
+                .get("assignees", {}).get("nodes", []) if n.get("id")]
+    except subprocess.CalledProcessError as e:
+        logger.error(f"get_assignee_user_ids_for_issue failed: {e.stderr}")
+    except json.JSONDecodeError as e:
+        logger.error(f"get_assignee_user_ids_for_issue parse failed: {e}")
+    return []
+
+def add_assignees_to_assignable(assignable_id: str, user_ids: List[str]) -> None:
+    """PR へアサインを追加する"""
+    if not user_ids:
+        return
+    mutation = (
+        "mutation($A:ID!,$U:[ID!]!){\n"
+        "  addAssigneesToAssignable(input:{assignableId:$A,assigneeIds:$U}){clientMutationId}\n"
+        "}\n"
+    )
+    try:
+        run_gh([
+            "gh", "api", "graphql",
+            "-f", f"query={mutation}",
+            "-f", f"A={assignable_id}",
+            "-f", "U=%s" % " ".join(user_ids),
+        ])
+    except subprocess.CalledProcessError as e:
+        logger.error(f"add_assignees_to_assignable failed: {e.stderr}")
+
+def sync_pr_assignees_if_empty_from_issue(pr_node_id: str, issue_node_id: str) -> None:
+    """PR のアサインが空なら Issue からコピーする"""
+    pr_assignees = get_assignee_user_ids_for_pr(pr_node_id)
+    if pr_assignees:
+        return
+    issue_assignees = get_assignee_user_ids_for_issue(issue_node_id)
+    if issue_assignees:
+        add_assignees_to_assignable(pr_node_id, issue_assignees)
 
 def main(output_dir: str, repo: str = "") -> None:
     os.makedirs(output_dir, exist_ok=True)
@@ -333,6 +664,22 @@ def main(output_dir: str, repo: str = "") -> None:
         row = "| " + " | ".join(row_fields) + " |\n"
         with open(output_file, "a", encoding="utf-8") as f:
             f.write(row)
+
+        # --- Issue→PR 同期処理（空欄のみ） ---
+        try:
+            issue_id = get_first_development_issue_id(pr_node_id)
+            if issue_id:
+                pr_items = get_project_item_map(pr_node_id)
+                issue_items = get_project_item_map(issue_id)
+                for pid, pr_item in pr_items.items():
+                    issue_item = issue_items.get(pid)
+                    if not issue_item:
+                        continue
+                    catalog = get_project_field_catalog(pid)
+                    sync_if_empty_same_project(pr_item["item"], issue_item["item"], catalog)
+                sync_pr_assignees_if_empty_from_issue(pr_node_id, issue_id)
+        except Exception as e:
+            logger.error(f"sync failed for PR {number}: {e}")
 
     logger.info(f"PR 情報を {output_file} に出力しました")
 
