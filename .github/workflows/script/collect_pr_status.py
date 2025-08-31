@@ -370,8 +370,9 @@ def extract_field_value_map(field_values_nodes: List[Dict[str, Any]]) -> Dict[st
 
 def update_single_select(project_id: str, item_id: str, field_id: str, option_id: str) -> None:
     """Single-select フィールドを更新する"""
+    # GitHub のスキーマでは singleSelectOptionId は String を受け付けるため $O は String!
     mutation = (
-        "mutation($P:ID!,$I:ID!,$F:ID!,$O:ID!){\n"
+        "mutation($P:ID!,$I:ID!,$F:ID!,$O:String!){\n"
         "  updateProjectV2ItemFieldValue(input:{projectId:$P,itemId:$I,fieldId:$F,value:{singleSelectOptionId:$O}}){clientMutationId}\n"
         "}\n"
     )
