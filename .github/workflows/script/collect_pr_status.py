@@ -479,11 +479,13 @@ def get_assignee_user_ids_for_issue(issue_node_id: str) -> List[str]:
 
 def add_assignees_to_assignable(assignable_id: str, user_ids: List[str]) -> None:
     """指定した assignable にユーザーをアサインする"""
-    # 空配列の場合は何もしない
+    # ユーザー ID が空の場合は何もしない
     if not user_ids:
         return
     mutation = (
-        "mutation($A:ID!,$U:[ID!]!){ addAssigneesToAssignable(input:{assignableId:$A,assigneeIds:$U}){clientMutationId} }"
+        "mutation($A:ID!,$U:[ID!]!){ "
+        "addAssigneesToAssignable(input:{assignableId:$A,assigneeIds:$U}){clientMutationId} "
+        "}"
     )
     try:
         # GraphQL の配列変数は --raw-field で JSON 配列をそのまま渡す
