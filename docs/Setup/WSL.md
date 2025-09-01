@@ -1,0 +1,1 @@
+[Windows Subsystem for Linux (WSL2) に Node.js をインストールする](https://learn.microsoft.com/ja-jp/windows/dev-environment/javascript/nodejs-on-wsl)
