@@ -636,6 +636,12 @@ def main(output_dir: str, repo: str = "") -> None:
         f.write("| " + " | ".join(header_cols) + " |\n")
         f.write("| " + " | ".join(["---"] * len(header_cols)) + " |\n")
 
+    # ドラフト PR を対象に含めるかどうかの制御（環境変数）
+    # 既定は True（現行仕様と互換）。"false"/"0"/"no"/"off" の場合のみ除外。
+    include_drafts_env = os.environ.get("INCLUDE_DRAFT_PRS", "true").strip().lower()
+    include_drafts = include_drafts_env in {"1", "true", "yes", "y", "on"}
+    logger.debug(f"INCLUDE_DRAFT_PRS={include_drafts_env} -> include_drafts={include_drafts}")
+
     # 1. オープン中の PR 一覧を取得
     #    number や title などの基本情報をまとめて JSON 形式で取得する
     pr_list_cmd = [
@@ -653,6 +659,11 @@ def main(output_dir: str, repo: str = "") -> None:
         title = pr["title"].replace("\n", " ").replace("|", "\\|")
         url = pr["url"]
         is_draft = pr.get("isDraft", False)
+
+        # 環境変数でドラフト PR の対象可否を切り替え
+        if (not include_drafts) and is_draft:
+            logger.debug(f"Skip draft PR #{number} due to INCLUDE_DRAFT_PRS=false")
+            continue
 
         details_cmd = [
             "gh", "pr", "view", str(number), "--json", "reviews,reviewRequests,assignees",
