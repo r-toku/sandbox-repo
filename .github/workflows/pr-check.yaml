@@ -29,6 +29,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
           LOG_LEVEL: DEBUG
           LOGIN_USERS_B64: ${{ vars.LOGIN_USERS_B64 }}
+          # ドラフト PR を対象に含めるかの切替 (true/false)
+          INCLUDE_DRAFT_PRS: "false"
           # スペースや改行で区切って複数指定可能なサブリポジトリ一覧
           SUB_REPOSITORY: |
             r-toku/sandbox-repo
