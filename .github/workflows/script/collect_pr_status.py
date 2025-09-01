@@ -17,6 +17,7 @@ import os
 import subprocess
 import logging
 import base64
+import time
 from typing import List, Dict, Any, Set, Optional
 
 # 環境変数 LOG_LEVEL を参照してログレベルを設定
@@ -710,6 +711,31 @@ def main(output_dir: str, repo: str = "") -> None:
         node_cmd = ["gh", "pr", "view", str(number), "--json", "id", "-q", ".id"] + repo_arg
         pr_node_id = run_gh(node_cmd).strip()
         logger.debug(f"PR_NODE_ID for PR {number}={pr_node_id}")
+
+        # 関連 Issue のフィールド/アサインを PR に反映（PR 側が空のもののみ）
+        try:
+            issue_id = get_first_development_issue_id(pr_node_id)
+            if issue_id:
+                pr_items = get_project_item_map(pr_node_id)
+                issue_items = get_project_item_map(issue_id)
+                for pid, pr_item in pr_items.items():
+                    issue_item = issue_items.get(pid)
+                    if not issue_item:
+                        continue
+                    catalog = get_project_field_catalog(pid)
+                    sync_if_empty_same_project(pr_item["item"], issue_item["item"], catalog)
+                # アサインも必要に応じて同期
+                sync_pr_assignees_if_empty_from_issue(pr_node_id, issue_id)
+                # 反映が読み取りに反映されるまで短時間待機
+                time.sleep(1)
+                # アサインが更新された可能性があるので再取得
+                details_json = run_gh(details_cmd)
+                details = json.loads(details_json)
+                assignees = [a["login"] for a in details.get("assignees", [])]
+                if assignees:
+                    assignees_str = " ".join(assignees)
+        except Exception as e:
+            logger.error(f"同期処理に失敗しました: {e}")
 
         # プロジェクトアイテムに紐付く任意フィールドを取得するクエリ
         # PullRequest の projectItems から fieldValues を列挙し、
